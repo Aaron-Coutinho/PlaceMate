@@ -38,3 +38,5 @@ out/
 FirebaseSDK.txt
 firebase-service-account.json
 LOG_Changes.md
+
+.agent/
