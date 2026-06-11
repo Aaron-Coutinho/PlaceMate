@@ -1,42 +1,49 @@
 """
-PlaceMate Backend – AI Service (Gemini 1.5 Flash)
+PlaceMate Backend – AI Service (Gemini 2.0 Flash Lite)
 
 Handles study plan generation and notes summarization using Google's
-Gemini 1.5 Flash model. This is the core intelligence layer of PlaceMate.
+Gemini 2.0 Flash Lite model via the new `google-genai` SDK.
+
+Model choice: gemini-2.0-flash-lite
+  - Free-tier safe: 1500 RPD, 30 RPM, no billing required
+  - Sufficient for plan/notes/MCQ generation tasks
+  - gemini-2.0-flash and gemini-2.5-flash require billing enabled
 """
 
 import json
-import os
 import logging
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Gemini initialization
+# Gemini client initialization
 # ---------------------------------------------------------------------------
 
-_model = None
+_client = None
+
+MODEL_ID = "gemini-2.5-flash-lite"
 
 
-def _get_model():
-    """Lazy-initialize the Gemini 1.5 Flash model."""
-    global _model
-    if _model is None:
-        genai.configure(api_key=settings.GEMINI_API_KEY)
-        # Gemini 1.5 Flash — core model for plan/notes/MCQ generation
-        _model = genai.GenerativeModel(
-            "gemini-1.5-flash",
-            generation_config=genai.GenerationConfig(
-                temperature=0.7,
-                top_p=0.9,
-                max_output_tokens=8192,
-            ),
-        )
-    return _model
+def _get_client() -> genai.Client:
+    """Lazy-initialize the Gemini client (new google-genai SDK)."""
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _client
+
+
+def _generation_config() -> types.GenerateContentConfig:
+    """Shared generation config for all AI calls."""
+    return types.GenerateContentConfig(
+        temperature=0.7,
+        top_p=0.9,
+        max_output_tokens=8192,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -94,12 +101,12 @@ async def generate_study_plan(
     hours_per_day: int,
 ) -> list[dict[str, Any]]:
     """
-    Generate a complete N-day study plan using Gemini 1.5 Flash.
+    Generate a complete N-day study plan using Gemini 2.0 Flash Lite.
 
     Returns a list of day plan dicts, each containing:
     - day, subject, topics, learning_objectives, notes_summary, youtube_search_query
     """
-    model = _get_model()
+    client = _get_client()
     prompt = _build_plan_prompt(weak_subjects, topics, days, hours_per_day)
 
     logger.info(
@@ -107,14 +114,17 @@ async def generate_study_plan(
     )
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt,
+            config=_generation_config(),
+        )
         raw_text = response.text.strip()
 
         # Strip markdown code fences if present
         if raw_text.startswith("```"):
-            # Remove opening fence (```json or ```)
             first_newline = raw_text.index("\n")
-            raw_text = raw_text[first_newline + 1 :]
+            raw_text = raw_text[first_newline + 1:]
         if raw_text.endswith("```"):
             raw_text = raw_text[:-3]
 
@@ -162,7 +172,7 @@ async def generate_detailed_notes(
 
     Returns markdown-formatted notes string.
     """
-    model = _get_model()
+    client = _get_client()
     prompt = f"""You are an expert placement preparation tutor.
 
 Generate comprehensive, well-structured study notes for the following:
@@ -181,7 +191,11 @@ The notes should:
 Return ONLY the markdown notes, no JSON wrapping."""
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt,
+            config=_generation_config(),
+        )
         return response.text.strip()
     except Exception as e:
         logger.error(f"Notes generation failed: {e}")

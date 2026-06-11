@@ -35,9 +35,13 @@ def verify_id_token(token: str) -> dict:
 
     Returns the decoded token dict containing 'uid', 'email', etc.
     Raises firebase_admin.auth.InvalidIdTokenError on failure.
+
+    clock_skew_seconds=10 tolerates minor clock drift between the browser
+    (which mints the token) and this server — fixes "Token used too early" errors
+    that occur when the client clock is a few seconds ahead of the server clock.
     """
     init_firebase()
-    return firebase_auth.verify_id_token(token)
+    return firebase_auth.verify_id_token(token, clock_skew_seconds=10)
 
 
 # Convenience: pre-initialized Firestore client
