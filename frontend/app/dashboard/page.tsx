@@ -1,14 +1,18 @@
 /**
- * PlaceMate – Dashboard Page (Stub)
+ * PlaceMate – Dashboard Page
  *
- * Post-login landing page. Will be expanded with progress tracking,
- * plan overview, and assessment entry point in Phase 2-4.
+ * Post-login landing page with assessment entry, active plan access,
+ * and progress overview.
  */
 
 "use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { api } from "@/lib/api";
+import type { UserProfile } from "@/types";
 
 export default function DashboardPage() {
   return (
@@ -20,6 +24,22 @@ export default function DashboardPage() {
 
 function DashboardContent() {
   const { user, logOut } = useAuth();
+  const router = useRouter();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    async function fetchProfile() {
+      try {
+        const data = await api.get<UserProfile>("/auth/profile");
+        setProfile(data);
+      } catch {
+        // Profile might not exist yet on first login
+      }
+    }
+    fetchProfile();
+  }, []);
+
+  const hasPlan = !!profile?.current_plan_id;
 
   return (
     <main className="min-h-screen bg-gray-950 relative overflow-hidden">
@@ -83,14 +103,19 @@ function DashboardContent() {
             <span className="ml-2">👋</span>
           </h1>
           <p className="text-gray-400">
-            Ready to ace your placements? Start with an assessment test.
+            {hasPlan
+              ? "Continue your study plan or take a new assessment."
+              : "Ready to ace your placements? Start with an assessment test."}
           </p>
         </div>
 
         {/* Action cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Take Assessment */}
-          <div className="group bg-gray-900/60 backdrop-blur-sm border border-gray-800/50 rounded-2xl p-6 hover:border-indigo-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-indigo-500/5 hover:-translate-y-1 cursor-pointer">
+          <div
+            onClick={() => router.push("/test")}
+            className="group bg-gray-900/60 backdrop-blur-sm border border-gray-800/50 rounded-2xl p-6 hover:border-indigo-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-indigo-500/5 hover:-translate-y-1 cursor-pointer"
+          >
             <div className="w-12 h-12 rounded-xl bg-indigo-500/10 flex items-center justify-center mb-4 group-hover:bg-indigo-500/20 transition-colors">
               <svg
                 className="w-6 h-6 text-indigo-400"
@@ -107,7 +132,7 @@ function DashboardContent() {
               </svg>
             </div>
             <h3 className="text-lg font-semibold text-white mb-1">
-              Take Assessment Test
+              {hasPlan ? "Retake Assessment" : "Take Assessment Test"}
             </h3>
             <p className="text-sm text-gray-400 leading-relaxed">
               Identify your weak subjects with a mixed-topic MCQ test across
@@ -115,49 +140,69 @@ function DashboardContent() {
             </p>
             <div className="mt-4 flex items-center gap-1 text-indigo-400 text-sm font-medium group-hover:gap-2 transition-all">
               Start Test
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"
-                />
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
               </svg>
             </div>
           </div>
 
-          {/* View Plan (locked) */}
-          <div className="bg-gray-900/40 border border-gray-800/30 rounded-2xl p-6 opacity-50 cursor-not-allowed">
-            <div className="w-12 h-12 rounded-xl bg-gray-800/50 flex items-center justify-center mb-4">
-              <svg
-                className="w-6 h-6 text-gray-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
-                />
-              </svg>
+          {/* Study Plan */}
+          <div
+            onClick={() => {
+              if (hasPlan) {
+                router.push(`/plan/${profile!.current_plan_id}`);
+              }
+            }}
+            className={`group rounded-2xl p-6 transition-all duration-300 border ${
+              hasPlan
+                ? "bg-gray-900/60 backdrop-blur-sm border-gray-800/50 hover:border-emerald-500/30 hover:shadow-lg hover:shadow-emerald-500/5 hover:-translate-y-1 cursor-pointer"
+                : "bg-gray-900/40 border-gray-800/30 opacity-50 cursor-not-allowed"
+            }`}
+          >
+            <div
+              className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${
+                hasPlan
+                  ? "bg-emerald-500/10 group-hover:bg-emerald-500/20"
+                  : "bg-gray-800/50"
+              }`}
+            >
+              {hasPlan ? (
+                <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+              )}
             </div>
-            <h3 className="text-lg font-semibold text-gray-500 mb-1">
+            <h3
+              className={`text-lg font-semibold mb-1 ${
+                hasPlan ? "text-white" : "text-gray-500"
+              }`}
+            >
               Study Plan
             </h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              Complete your assessment test first to generate a personalized
-              study plan.
+            <p
+              className={`text-sm leading-relaxed ${
+                hasPlan ? "text-gray-400" : "text-gray-600"
+              }`}
+            >
+              {hasPlan
+                ? "Continue your personalized study plan with daily content."
+                : "Complete your assessment test first to generate a personalized study plan."}
             </p>
+            {hasPlan && (
+              <div className="mt-4 flex items-center gap-1 text-emerald-400 text-sm font-medium group-hover:gap-2 transition-all">
+                Continue Plan
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                </svg>
+              </div>
+            )}
           </div>
 
-          {/* Progress (locked) */}
+          {/* Progress (locked for now) */}
           <div className="bg-gray-900/40 border border-gray-800/30 rounded-2xl p-6 opacity-50 cursor-not-allowed">
             <div className="w-12 h-12 rounded-xl bg-gray-800/50 flex items-center justify-center mb-4">
               <svg
@@ -179,7 +224,7 @@ function DashboardContent() {
             </h3>
             <p className="text-sm text-gray-600 leading-relaxed">
               Track your study streaks, MCQ scores, and overall completion
-              percentage.
+              percentage. Coming in Phase 4.
             </p>
           </div>
         </div>
