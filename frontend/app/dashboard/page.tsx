@@ -135,14 +135,11 @@ function DashboardContent() {
               {hasPlan ? "Retake Assessment" : "Take Assessment Test"}
             </h3>
             <p className="text-sm text-gray-400 leading-relaxed">
-              Identify your weak subjects with a mixed-topic MCQ test across
-              DSA, OS, DBMS, CN, and Aptitude.
+              Identify your weak subjects across DSA, OS, DBMS, CN & Aptitude.
+              20 questions · No time limit
             </p>
             <div className="mt-4 flex items-center gap-1 text-indigo-400 text-sm font-medium group-hover:gap-2 transition-all">
-              Start Test
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-              </svg>
+              Start Test →
             </div>
           </div>
 

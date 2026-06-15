@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from app.middleware.auth import get_current_uid
 from app.firebase_init import get_db
 from app.models.schemas import PlanConfig, PlanResponse
-from app.services.ai_service import generate_study_plan
+from app.services.ai_service import generate_study_plan, generate_detailed_notes
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ async def generate_plan(
             "subject": day_item.get("subject", ""),
             "topics": day_item.get("topics", []),
             "learning_objectives": day_item.get("learning_objectives", []),
-            "notes": day_item.get("notes_summary", ""),
+            "notes": "",         # Generated on-demand when day is opened
             "youtube_query": day_item.get("youtube_search_query", ""),
             "videos": [],        # Populated in Phase 3 (YouTube API)
             "mcqs": [],          # Populated in Phase 3 (MCQ generation)
@@ -168,5 +168,22 @@ async def get_day_detail(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Day {day_number} is locked. Complete the previous day first.",
         )
+
+    # Generate notes on-demand if not already generated
+    if not day_data.get("notes"):
+        try:
+            logger.info(f"Generating detailed notes on-demand for plan_id={plan_id}, day={day_number}")
+            notes = await generate_detailed_notes(
+                subject=day_data.get("subject", ""),
+                topics=day_data.get("topics", [])
+            )
+            day_ref.update({"notes": notes})
+            day_data["notes"] = notes
+        except Exception as e:
+            logger.error(f"Failed to generate detailed notes: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate study notes for Day {day_number}. Please try again.",
+            )
 
     return day_data

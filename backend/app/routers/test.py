@@ -77,19 +77,19 @@ async def submit_test(
     """
     Submit test answers and receive per-subject scores + weak subject analysis.
 
-    The submission should contain a mapping of question_id -> selected answer.
+    Skipped questions (not in submission) count the subject as weak automatically
+    if ALL of that subject's questions were left unanswered.
     """
     db = get_db()
 
-    # Fetch correct answers for submitted question IDs
     question_ids = list(submission.answers.keys())
-    if not question_ids:
+    if not question_ids and not submission.answers:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No answers submitted",
         )
 
-    # Tally scores per subject
+    # Fetch correct answers for submitted question IDs
     subject_tally: dict[str, dict[str, int]] = {}  # {subject: {correct, total}}
 
     for qid, user_answer in submission.answers.items():
@@ -108,7 +108,14 @@ async def submit_test(
         if user_answer.strip().upper() == correct_answer.strip().upper():
             subject_tally[subject]["correct"] += 1
 
-    # Calculate percentages
+    # Identify subjects where ALL questions were skipped (not in submission).
+    # We know which subjects exist from the tally; compare against the full
+    # set of known subjects in the question bank.
+    all_subjects = {"DSA", "OS", "DBMS", "CN", "Aptitude"}
+    attempted_subjects = set(subject_tally.keys())
+    fully_skipped_subjects = all_subjects - attempted_subjects
+
+    # Calculate percentages for attempted subjects
     subject_scores: list[SubjectScore] = []
     total_correct = 0
     total_questions = 0
@@ -128,9 +135,12 @@ async def submit_test(
 
     overall = (total_correct / total_questions * 100) if total_questions > 0 else 0
 
-    # Identify weak subjects
+    # Identify weak subjects:
+    # 1. Score-based: attempted subjects below threshold or average
+    # 2. Skipped: entire subject was left unanswered
     weak_subjects = _identify_weak_subjects(
-        {s.subject: s.percentage for s in subject_scores}
+        {s.subject: s.percentage for s in subject_scores},
+        fully_skipped=list(fully_skipped_subjects),
     )
 
     # Store result in Firestore
@@ -155,17 +165,38 @@ async def submit_test(
     )
 
 
-def _identify_weak_subjects(subject_scores: dict[str, float]) -> list[str]:
+def _identify_weak_subjects(
+    subject_scores: dict[str, float],
+    fully_skipped: list[str] | None = None,
+) -> list[str]:
     """
-    Flag subjects as weak if they score below the average OR below the
-    absolute threshold (WEAK_THRESHOLD_PERCENT).
+    Flag subjects as weak using two rules:
+
+    1. Score-based (attempted subjects):
+       Weak if score < average across all attempted subjects
+       OR score < absolute WEAK_THRESHOLD_PERCENT (60%).
+
+    2. Skip-based:
+       If ALL questions for a subject were left unanswered, the subject
+       is automatically weak (unattempted = unfamiliar with the topic).
     """
+    weak: list[str] = list(fully_skipped or [])
+
     if not subject_scores:
-        return []
+        return weak
 
     avg = sum(subject_scores.values()) / len(subject_scores)
-    return [
+    weak += [
         subject
         for subject, score in subject_scores.items()
         if score < avg or score < WEAK_THRESHOLD_PERCENT
     ]
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    result: list[str] = []
+    for s in weak:
+        if s not in seen:
+            seen.add(s)
+            result.append(s)
+    return result

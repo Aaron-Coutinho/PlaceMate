@@ -10,8 +10,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import type { TestResult } from "@/types";
+import type { TestResult, SubjectScore } from "@/types";
 import dynamic from "next/dynamic";
+
+const ALL_SUBJECTS = ["DSA", "OS", "DBMS", "CN", "Aptitude"];
 
 // Lazy-load Recharts to avoid SSR issues
 const ResultsChart = dynamic(() => import("@/components/ResultsChart"), {
@@ -113,15 +115,22 @@ function ResultsContent() {
           />
         </div>
 
-        {/* Score cards */}
+        {/* Score cards — show ALL 5 subjects */}
         <div className="space-y-3 mb-8">
-          {result.subject_scores.map((score) => {
-            const isWeak = result.weak_subjects.includes(score.subject);
+          {ALL_SUBJECTS.map((subject) => {
+            const score = result.subject_scores.find(
+              (s) => s.subject === subject
+            );
+            const isAttempted = score !== undefined && score.total > 0;
+            const isWeak = result.weak_subjects.includes(subject);
+
             return (
               <div
-                key={score.subject}
+                key={subject}
                 className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
-                  isWeak
+                  !isAttempted
+                    ? "bg-gray-500/5 border-gray-700/30"
+                    : isWeak
                     ? "bg-red-500/5 border-red-500/20"
                     : "bg-emerald-500/5 border-emerald-500/20"
                 }`}
@@ -129,27 +138,41 @@ function ResultsContent() {
                 <div className="flex items-center gap-3">
                   <span
                     className={`w-3 h-3 rounded-full ${
-                      isWeak ? "bg-red-400" : "bg-emerald-400"
+                      !isAttempted
+                        ? "bg-gray-500"
+                        : isWeak
+                        ? "bg-red-400"
+                        : "bg-emerald-400"
                     }`}
                   />
-                  <span className="text-white font-medium">{score.subject}</span>
-                  {isWeak && (
+                  <span className="text-white font-medium">{subject}</span>
+                  {!isAttempted ? (
+                    <span className="text-xs bg-gray-700/40 text-gray-400 px-2 py-0.5 rounded-full">
+                      Not Attempted
+                    </span>
+                  ) : isWeak ? (
                     <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full">
                       Needs Improvement
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-gray-400">
-                    {score.correct}/{score.total}
-                  </span>
-                  <span
-                    className={`text-lg font-bold ${
-                      isWeak ? "text-red-400" : "text-emerald-400"
-                    }`}
-                  >
-                    {score.percentage.toFixed(0)}%
-                  </span>
+                  {isAttempted ? (
+                    <>
+                      <span className="text-sm text-gray-400">
+                        {score!.correct}/{score!.total}
+                      </span>
+                      <span
+                        className={`text-lg font-bold ${
+                          isWeak ? "text-red-400" : "text-emerald-400"
+                        }`}
+                      >
+                        {score!.percentage.toFixed(0)}%
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-sm text-gray-500">—</span>
+                  )}
                 </div>
               </div>
             );
@@ -167,17 +190,30 @@ function ResultsContent() {
                 </h3>
                 <p className="text-sm text-gray-400 mb-3">
                   Based on your performance, the following subjects need focused
-                  preparation:
+                  preparation. Subjects where you didn&apos;t answer any questions
+                  are also included (not attempted = unfamiliar).
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {result.weak_subjects.map((subject) => (
-                    <span
-                      key={subject}
-                      className="px-3 py-1 bg-amber-500/15 text-amber-300 rounded-full text-sm font-medium border border-amber-500/20"
-                    >
-                      {subject}
-                    </span>
-                  ))}
+                  {result.weak_subjects.map((subject) => {
+                    const score = result.subject_scores.find(
+                      (s) => s.subject === subject
+                    );
+                    const isNotAttempted =
+                      !score || score.total === 0;
+                    return (
+                      <span
+                        key={subject}
+                        className="px-3 py-1 bg-amber-500/15 text-amber-300 rounded-full text-sm font-medium border border-amber-500/20"
+                      >
+                        {subject}
+                        {isNotAttempted && (
+                          <span className="ml-1 text-xs text-amber-400/60">
+                            (Not attempted)
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             </div>

@@ -3,6 +3,10 @@
  *
  * Captures study plan parameters (days, hours per day) and
  * triggers AI plan generation via the backend.
+ *
+ * Derives the active weak subjects from the selected topics —
+ * if the user deselected all topics for a subject, that subject
+ * is excluded from both the Plan Summary and the generation request.
  */
 
 "use client";
@@ -11,6 +15,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { api } from "@/lib/api";
+import { TOPIC_MAP } from "@/config/topicMap";
 import type { PlanResponse } from "@/types";
 
 export default function PlanConfigPage() {
@@ -25,10 +30,30 @@ function PlanConfigContent() {
   const router = useRouter();
   const [weakSubjects, setWeakSubjects] = useState<string[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
-  const [days, setDays] = useState(14);
+  const [durationValue, setDurationValue] = useState(14);
+  const [durationUnit, setDurationUnit] = useState<"days" | "months" | "years">("days");
   const [hoursPerDay, setHoursPerDay] = useState(3);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const getDaysValue = (val: number, unit: "days" | "months" | "years") => {
+    if (unit === "days") return val;
+    if (unit === "months") return val * 30;
+    return 365;
+  };
+
+  const days = getDaysValue(durationValue, durationUnit);
+
+  const handleUnitChange = (unit: "days" | "months" | "years") => {
+    setDurationUnit(unit);
+    if (unit === "days") {
+      setDurationValue(14);
+    } else if (unit === "months") {
+      setDurationValue(3);
+    } else {
+      setDurationValue(1);
+    }
+  };
 
   useEffect(() => {
     const storedSubjects = sessionStorage.getItem("weakSubjects");
@@ -43,13 +68,20 @@ function PlanConfigContent() {
     setSelectedTopics(JSON.parse(storedTopics));
   }, [router]);
 
+  // Derive which weak subjects actually have at least one selected topic.
+  // If CN is fully deselected in topic selection, it shouldn't be sent for plan generation.
+  const activeWeakSubjects = weakSubjects.filter((subject) => {
+    const subjectTopics = TOPIC_MAP[subject] || [];
+    return subjectTopics.some((topic) => selectedTopics.includes(topic));
+  });
+
   const handleGenerate = async () => {
     setGenerating(true);
     setError(null);
 
     try {
       const result = await api.post<PlanResponse>("/plan/generate", {
-        weak_subjects: weakSubjects,
+        weak_subjects: activeWeakSubjects,
         topics: selectedTopics,
         days,
         hours_per_day: hoursPerDay,
@@ -74,7 +106,7 @@ function PlanConfigContent() {
     }
   };
 
-  const dayPresets = [7, 14, 21, 30];
+
 
   if (generating) {
     return (
@@ -96,7 +128,7 @@ function PlanConfigContent() {
             Our AI is crafting a personalized {days}-day plan
             <br />
             covering {selectedTopics.length} topics across{" "}
-            {weakSubjects.length} subjects...
+            {activeWeakSubjects.length} subjects...
           </p>
           <div className="flex flex-wrap justify-center gap-2">
             {["Analyzing topics...", "Building schedule...", "Creating notes..."].map(
@@ -138,7 +170,7 @@ function PlanConfigContent() {
           </p>
         </div>
 
-        {/* Plan summary */}
+        {/* Plan summary — uses activeWeakSubjects (only subjects with selected topics) */}
         <div className="bg-gray-900/60 backdrop-blur-sm border border-gray-800/50 rounded-2xl p-6 mb-6">
           <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
             Plan Summary
@@ -147,7 +179,7 @@ function PlanConfigContent() {
             <div>
               <p className="text-xs text-gray-500 mb-1">Weak Subjects</p>
               <div className="flex flex-wrap gap-1.5">
-                {weakSubjects.map((s) => (
+                {activeWeakSubjects.map((s) => (
                   <span
                     key={s}
                     className="px-2 py-0.5 bg-red-500/15 text-red-300 text-xs rounded-md border border-red-500/20"
@@ -166,47 +198,59 @@ function PlanConfigContent() {
           </div>
         </div>
 
-        {/* Days selector */}
+        {/* Days selector — up to 365 days */}
         <div className="bg-gray-900/60 backdrop-blur-sm border border-gray-800/50 rounded-2xl p-6 mb-6">
           <label className="block text-white font-semibold mb-4">
             Study Duration
           </label>
 
-          {/* Presets */}
+          {/* Unit selector buttons */}
           <div className="flex gap-3 mb-4">
-            {dayPresets.map((preset) => (
+            {(["days", "months", "years"] as const).map((unit) => (
               <button
-                key={preset}
-                onClick={() => setDays(preset)}
+                key={unit}
+                type="button"
+                onClick={() => handleUnitChange(unit)}
                 className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all border ${
-                  days === preset
+                  durationUnit === unit
                     ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300"
                     : "bg-gray-800/30 border-gray-800/50 text-gray-400 hover:border-gray-700"
                 }`}
               >
-                {preset} days
+                {unit === "days" ? "Days" : unit === "months" ? "Months" : "Year"}
               </button>
             ))}
           </div>
 
-          {/* Slider */}
+          {/* Value selector dropdown */}
           <div className="space-y-2">
-            <input
-              type="range"
-              min={1}
-              max={90}
-              value={days}
-              onChange={(e) => setDays(parseInt(e.target.value))}
-              className="w-full h-2 bg-gray-800 rounded-full appearance-none cursor-pointer accent-indigo-500"
-            />
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>1 day</span>
-              <span className="text-indigo-400 font-semibold text-sm">
-                {days} day{days !== 1 ? "s" : ""}
-              </span>
-              <span>90 days</span>
-            </div>
+            <label className="block text-xs text-gray-400">Select Duration</label>
+            <select
+              value={durationValue}
+              onChange={(e) => setDurationValue(parseInt(e.target.value))}
+              className="w-full bg-gray-900/50 border border-gray-800/80 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all cursor-pointer"
+            >
+              {durationUnit === "days" &&
+                Array.from({ length: 30 }, (_, i) => i + 1).map((val) => (
+                  <option key={val} value={val} className="bg-gray-950">
+                    {val} day{val > 1 ? "s" : ""}
+                  </option>
+                ))}
+              {durationUnit === "months" &&
+                Array.from({ length: 12 }, (_, i) => i + 1).map((val) => (
+                  <option key={val} value={val} className="bg-gray-950">
+                    {val} month{val > 1 ? "s" : ""}
+                  </option>
+                ))}
+              {durationUnit === "years" && (
+                <option value={1} className="bg-gray-950">1 year</option>
+              )}
+            </select>
           </div>
+
+          <p className="text-xs text-indigo-400 font-semibold mt-3">
+            Timeline: {days} days of preparation
+          </p>
         </div>
 
         {/* Hours per day */}

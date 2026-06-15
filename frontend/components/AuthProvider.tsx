@@ -3,6 +3,9 @@
  *
  * Wraps the app with Firebase Auth state. Provides current user,
  * loading state, sign-in, and sign-out to all components via useAuth().
+ *
+ * Includes retry logic for the /auth/register call to gracefully handle
+ * Firebase "Token used too early" clock-skew errors on cold-start login.
  */
 
 "use client";
@@ -37,6 +40,34 @@ const AuthContext = createContext<AuthContextType>({
   logOut: async () => {},
 });
 
+/**
+ * Retry a function up to `retries` times with exponential backoff.
+ * Used to handle "Token used too early" errors caused by minor clock drift.
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  delayMs = 2000
+): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const isClockSkew =
+        error instanceof Error &&
+        error.message.includes("Token used too early");
+
+      if (isClockSkew && attempt < retries) {
+        // Wait and retry — the token will become valid once the server clock catches up
+        await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Unreachable");
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Register/sync user profile with backend on sign-in
       if (firebaseUser) {
         try {
-          await api.post("/auth/register");
+          await retryWithBackoff(() => api.post("/auth/register"));
         } catch (error) {
           console.error("Failed to sync user with backend:", error);
         }

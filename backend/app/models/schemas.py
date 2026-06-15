@@ -79,7 +79,7 @@ class PlanConfig(BaseModel):
     """User's study plan configuration input."""
     weak_subjects: list[str] = Field(..., min_length=1)
     topics: list[str] = Field(..., min_length=1)
-    days: int = Field(..., ge=1, le=90)
+    days: int = Field(..., ge=1, le=365)
     hours_per_day: int = Field(..., ge=1, le=8)
 
 

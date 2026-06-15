@@ -27,7 +27,6 @@ function TestFlow() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,34 +67,26 @@ function TestFlow() {
   const isLastQuestion = currentIndex === totalQuestions - 1;
 
   const handleSelectOption = (option: string) => {
-    setSelectedOption(option);
+    if (!currentQuestion) return;
+    // Save immediately into answers — no need to wait for "Next"
+    const optionIndex = currentQuestion.options.indexOf(option);
+    const optionLetter = String.fromCharCode(65 + optionIndex);
+    setAnswers((prev) => ({ ...prev, [currentQuestion.id]: optionLetter }));
   };
 
   const handleNext = useCallback(() => {
-    if (!currentQuestion || !selectedOption) return;
-
-    // Extract option letter (A, B, C, D) from the option text or use index
-    const optionIndex = currentQuestion.options.indexOf(selectedOption);
-    const optionLetter = String.fromCharCode(65 + optionIndex); // A=0, B=1, C=2, D=3
-
-    const newAnswers = {
-      ...answers,
-      [currentQuestion.id]: optionLetter,
-    };
-    setAnswers(newAnswers);
-    setSelectedOption(null);
+    if (!currentQuestion) return;
 
     if (isLastQuestion) {
-      handleSubmit(newAnswers);
+      handleSubmit(answers);
     } else {
       setCurrentIndex((i) => i + 1);
     }
-  }, [currentQuestion, selectedOption, answers, isLastQuestion]);
+  }, [currentQuestion, answers, isLastQuestion]);
 
   const handlePrevious = () => {
     if (currentIndex > 0) {
       setCurrentIndex((i) => i - 1);
-      setSelectedOption(null);
     }
   };
 
@@ -157,16 +148,15 @@ function TestFlow() {
 
   if (!currentQuestion) return null;
 
-  // Get the previously selected answer for this question (if navigating back)
-  const previousAnswer = answers[currentQuestion.id];
-  const previousOptionIndex = previousAnswer
-    ? previousAnswer.charCodeAt(0) - 65
+  // Get the currently selected answer for this question from answers record
+  const currentAnswer = answers[currentQuestion.id];
+  const currentAnswerOptionIndex = currentAnswer
+    ? currentAnswer.charCodeAt(0) - 65
     : -1;
   const displaySelected =
-    selectedOption ||
-    (previousOptionIndex >= 0
-      ? currentQuestion.options[previousOptionIndex]
-      : null);
+    currentAnswerOptionIndex >= 0
+      ? currentQuestion.options[currentAnswerOptionIndex]
+      : null;
 
   return (
     <main className="min-h-screen bg-gray-950 relative overflow-hidden">
@@ -279,8 +269,7 @@ function TestFlow() {
           <button
             id="next-question-btn"
             onClick={handleNext}
-            disabled={!displaySelected}
-            className={`px-6 py-2.5 text-sm font-semibold rounded-xl transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed ${
+            className={`px-6 py-2.5 text-sm font-semibold rounded-xl transition-all duration-200 ${
               isLastQuestion
                 ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-lg shadow-emerald-500/20"
                 : "bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white shadow-lg shadow-indigo-500/20"
@@ -297,7 +286,6 @@ function TestFlow() {
               key={q.id}
               onClick={() => {
                 setCurrentIndex(i);
-                setSelectedOption(null);
               }}
               className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${
                 i === currentIndex

@@ -93,9 +93,12 @@ function DayPlayerContent() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-950">
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center gap-3 text-center px-4">
           <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400">Loading Day {dayNumber}...</p>
+          <p className="text-gray-200 font-medium">Loading Day {dayNumber}...</p>
+          <p className="text-gray-500 text-xs max-w-xs">
+            Crafting detailed AI study notes for you. This might take a few seconds on your first visit.
+          </p>
         </div>
       </div>
     );
