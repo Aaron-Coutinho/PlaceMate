@@ -5,3 +5,4 @@ google-genai>=2.8.0
 google-api-python-client==2.140.0
 python-dotenv==1.0.1
 pydantic==2.9.0
+groq>=0.9.0

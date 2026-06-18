@@ -5,6 +5,7 @@ Handles AI study plan generation, storage, and retrieval.
 Uses Gemini 1.5 Flash via ai_service for plan creation.
 """
 
+import asyncio
 import uuid
 import logging
 from datetime import datetime, timezone
@@ -12,7 +13,9 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from app.middleware.auth import get_current_uid
 from app.firebase_init import get_db
 from app.models.schemas import PlanConfig, PlanResponse
-from app.services.ai_service import generate_study_plan, generate_detailed_notes
+from app.services.ai_service import generate_study_plan, generate_detailed_notes, RateLimitError
+from app.services.youtube_service import fetch_videos_for_topic
+from app.services.mcq_service import generate_mcqs_for_day
 
 logger = logging.getLogger(__name__)
 
@@ -169,21 +172,94 @@ async def get_day_detail(
             detail=f"Day {day_number} is locked. Complete the previous day first.",
         )
 
-    # Generate notes on-demand if not already generated
-    if not day_data.get("notes"):
-        try:
-            logger.info(f"Generating detailed notes on-demand for plan_id={plan_id}, day={day_number}")
-            notes = await generate_detailed_notes(
-                subject=day_data.get("subject", ""),
-                topics=day_data.get("topics", [])
+    subject = day_data.get("subject", "")
+    topics = day_data.get("topics", [])
+    youtube_query = day_data.get("youtube_query", "")
+
+    needs_notes  = not day_data.get("notes")
+    needs_mcqs   = not day_data.get("mcqs")
+    needs_videos = not day_data.get("videos") and bool(youtube_query)
+
+    # ── Nothing to generate — return immediately ─────────────────────
+    if not (needs_notes or needs_mcqs or needs_videos):
+        return day_data
+
+    # ── Build coroutines for parallel execution ──────────────────────
+    async def _get_notes():
+        if not needs_notes:
+            return day_data.get("notes", "")
+        logger.info(f"[Gemini] Generating notes: plan={plan_id}, day={day_number}")
+        return await generate_detailed_notes(subject=subject, topics=topics)
+
+    async def _get_mcqs():
+        if not needs_mcqs:
+            return day_data.get("mcqs", [])
+        logger.info(f"[Groq]   Generating MCQs:  plan={plan_id}, day={day_number}")
+        return await generate_mcqs_for_day(subject=subject, topics=topics)
+
+    async def _get_videos():
+        if not needs_videos:
+            return day_data.get("videos", [])
+        logger.info(f"[YouTube] Fetching videos: plan={plan_id}, day={day_number}")
+        # fetch_videos_for_topic is sync — run in thread pool to avoid blocking event loop
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, fetch_videos_for_topic, youtube_query)
+
+    # ── Fire all three in parallel ──────────────────────────────────
+    results = await asyncio.gather(
+        _get_notes(),
+        _get_mcqs(),
+        _get_videos(),
+        return_exceptions=True,   # don't let one failure cancel the others
+    )
+
+    notes_result, mcqs_result, videos_result = results
+    updates: dict = {}
+
+    # ── Process notes result ───────────────────────────────────────
+    if needs_notes:
+        if isinstance(notes_result, RateLimitError):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "message": f"AI is busy. Please wait {notes_result.retry_after} seconds and try again.",
+                    "retry_after": notes_result.retry_after,
+                    "reason": "rate_limit",
+                },
             )
-            day_ref.update({"notes": notes})
-            day_data["notes"] = notes
-        except Exception as e:
-            logger.error(f"Failed to generate detailed notes: {e}")
+        elif isinstance(notes_result, Exception):
+            # Already logged in ai_service
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to generate study notes for Day {day_number}. Please try again.",
             )
+        else:
+            updates["notes"] = notes_result
+            day_data["notes"] = notes_result
+
+    # ── Process MCQs result (non-fatal) ────────────────────────────
+    if needs_mcqs:
+        if isinstance(mcqs_result, RateLimitError):
+            logger.warning(f"[Groq] MCQs skipped — rate limit: plan={plan_id}, day={day_number}")
+            day_data["mcqs"] = []
+        elif isinstance(mcqs_result, Exception):
+            logger.error(f"[Groq] MCQ generation error: {mcqs_result}")
+            day_data["mcqs"] = []
+        else:
+            updates["mcqs"] = mcqs_result
+            day_data["mcqs"] = mcqs_result
+
+    # ── Process videos result (non-fatal) ──────────────────────────
+    if needs_videos:
+        if isinstance(videos_result, Exception):
+            logger.error(f"[YouTube] Video fetch error: {videos_result}")
+            day_data["videos"] = []
+        else:
+            updates["videos"] = videos_result
+            day_data["videos"] = videos_result
+
+    # ── Persist all new fields in one Firestore write ────────────────
+    if updates:
+        day_ref.update(updates)
 
     return day_data

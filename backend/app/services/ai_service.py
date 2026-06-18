@@ -13,8 +13,10 @@ For large plans (>15 days), the generation is split into batches of 15
 to stay within the 8192 token output limit and avoid JSON truncation.
 """
 
+import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 from google import genai
@@ -22,6 +24,14 @@ from google.genai import types
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class RateLimitError(Exception):
+    """Raised when Gemini returns a 429 quota-exhausted response."""
+
+    def __init__(self, retry_after: int = 60) -> None:
+        self.retry_after = retry_after  # seconds to wait before retrying
+        super().__init__(f"Gemini rate limit hit — retry after {retry_after}s")
 
 # ---------------------------------------------------------------------------
 # Gemini client initialization
@@ -200,12 +210,17 @@ async def generate_study_plan(
 
 
 async def generate_detailed_notes(
-    subject: str, topics: list[str]
+    subject: str, topics: list[str], _retries: int = 2
 ) -> str:
     """
-    Generate detailed, high-quality study notes for a specific day's topics.
+    Generate detailed study notes for a specific day's topics.
 
-    Returns markdown-formatted notes string.
+    Automatically retries up to _retries times on 429 RESOURCE_EXHAUSTED,
+    waiting the number of seconds the API tells us in retryDelay.
+
+    Raises:
+        RateLimitError  – if quota is still exhausted after all retries
+        Exception       – for any other Gemini or network error
     """
     client = _get_client()
     prompt = f"""You are an expert placement preparation tutor.
@@ -228,13 +243,45 @@ Format requirements:
 
 Return ONLY the markdown notes, no JSON wrappers, no extra conversational preamble."""
 
-    try:
-        response = client.models.generate_content(
-            model=MODEL_ID,
-            contents=prompt,
-            config=_generation_config(),
-        )
-        return response.text.strip()
-    except Exception as e:
-        logger.error(f"Notes generation failed: {e}")
-        raise
+    last_error: Exception | None = None
+
+    for attempt in range(_retries + 1):  # attempt 0, 1, 2
+        try:
+            response = client.models.generate_content(
+                model=MODEL_ID,
+                contents=prompt,
+                config=_generation_config(),
+            )
+            return response.text.strip()
+
+        except Exception as e:
+            err_str = str(e)
+
+            # Detect quota-exhausted (429) or high-demand (503)
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "503" in err_str or "UNAVAILABLE" in err_str:
+                # Parse retryDelay from the error message (e.g. 'retryDelay': '44s')
+                match = re.search(r'retryDelay[\'"]?:\s*[\'"]?(\d+)', err_str)
+                retry_after = int(match.group(1)) + 2 if match else 60
+
+                if attempt < _retries:
+                    logger.warning(
+                        f"Notes: Gemini API busy on attempt {attempt + 1}/{_retries + 1}. "
+                        f"Waiting {retry_after}s before retry…"
+                    )
+                    await asyncio.sleep(retry_after)
+                    last_error = e
+                    continue
+                else:
+                    # All retries exhausted — surface as RateLimitError
+                    logger.warning(
+                        f"Notes: Gemini API busy — exhausted after {_retries + 1} attempts. "
+                        f"Client should retry after {retry_after}s."
+                    )
+                    raise RateLimitError(retry_after=retry_after) from e
+            else:
+                # Non-rate-limit error — don't retry, propagate immediately
+                logger.error(f"Notes generation failed (non-quota error): {e}")
+                raise
+
+    # Should never reach here, but satisfies type checker
+    raise last_error or RuntimeError("Notes generation failed unexpectedly")

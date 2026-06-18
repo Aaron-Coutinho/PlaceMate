@@ -21,8 +21,11 @@ class Settings:
         "FIREBASE_SERVICE_ACCOUNT", "serviceAccountKey.json"
     )
 
-    # Gemini AI (core model: 1.5 Flash)
+    # Gemini AI (core model: gemini-2.5-flash-lite)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+
+    # Groq AI (MCQ generation — 14,400 RPD free tier)
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 
     # YouTube Data API v3
     YOUTUBE_API_KEY: str = os.getenv("YOUTUBE_API_KEY", "")

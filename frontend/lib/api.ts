@@ -15,6 +15,19 @@ interface ApiOptions {
   headers?: Record<string, string>;
 }
 
+/** Extends Error with structured backend detail for rate-limit handling. */
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 /**
  * Make an authenticated API request to the backend.
  *
@@ -49,10 +62,13 @@ export async function apiRequest<T = unknown>(
   const response = await fetch(`${API_BASE}${endpoint}`, config);
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      detail: response.statusText,
-    }));
-    throw new Error(error.detail || `API error: ${response.status}`);
+    const detail = await response.json().catch(() => response.statusText);
+    const detailObj = typeof detail === "object" && detail !== null ? (detail as Record<string, any>) : {};
+    const message =
+      detailObj.message ||
+      detailObj.detail ||
+      (typeof detail === "string" ? detail : `API error: ${response.status}`);
+    throw new ApiError(message, response.status, detail);
   }
 
   return response.json() as Promise<T>;
