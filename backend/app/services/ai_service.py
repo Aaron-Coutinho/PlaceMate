@@ -94,7 +94,7 @@ Rules:
 2. Distribute topics across the plan based on the total duration:
    - **Extreme Short Case (1-3 days)**: If total study time is very limited (e.g. 1 day with 1 hour) and the user has selected many subjects/topics, DO NOT try to cram everything. Choose ONLY the most critical, high-yield placement topics (e.g. important Arrays/Linked Lists for DSA, basic SQL for DBMS, process states for OS) that a student can realistically grasp in the given time.
    - **Short/Medium Case (4-30 days)**: Distribute all selected topics evenly, moving from basic to advanced.
-   - **Long Case (31-365 days)**: Since there are more days than topics, spread them out. Dedicate specific days/weeks to deep dives, solving complex practice problems, revision of previous days, advanced topics, and mock interview questions. Ensure the schedule spans the entire {total_days} days.
+   - **Long Case (31-390 days)**: Since there are more days than topics, spread them out. Dedicate specific days/weeks to deep dives, solving complex practice problems, revision of previous days, advanced topics, and mock interview questions. Ensure the schedule spans the entire {total_days} days.
 3. Each day covers 1-2 closely related topics.
 4. youtube_search_query: specific and concise for finding tutorial videos.
 5. learning_objectives: 2-4 actionable learning targets for the day.
@@ -136,15 +136,15 @@ async def generate_study_plan(
     Generate a complete N-day study plan using Gemini.
 
     Splits generation into batches of BATCH_SIZE days to prevent JSON truncation
-    and handle long timelines (up to 365 days) smoothly.
+    and handle long timelines (up to 390 days) smoothly.
 
     Returns a list of day plan dicts, each containing:
     - day, subject, topics, learning_objectives, youtube_search_query
     """
     client = _get_client()
 
-    # Cap days at 365 to prevent absurd plans
-    days = min(days, 365)
+    # Cap days at 390 to prevent absurd plans
+    days = min(days, 390)
 
     logger.info(
         f"Generating {days}-day plan for subjects={weak_subjects}, topics={topics}"

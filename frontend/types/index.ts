@@ -45,7 +45,7 @@ export interface AnswerSubmission {
 export interface PlanConfig {
   weak_subjects: string[];
   topics: string[];
-  /** @min 1 @max 365 */
+  /** @min 1 @max 390 */
   days: number;
   hours_per_day: number;
 }

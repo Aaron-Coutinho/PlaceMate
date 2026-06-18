@@ -30,30 +30,13 @@ function PlanConfigContent() {
   const router = useRouter();
   const [weakSubjects, setWeakSubjects] = useState<string[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
-  const [durationValue, setDurationValue] = useState(14);
-  const [durationUnit, setDurationUnit] = useState<"days" | "months" | "years">("days");
+  const [months, setMonths] = useState(0);
+  const [daysVal, setDaysVal] = useState(14);
   const [hoursPerDay, setHoursPerDay] = useState(3);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getDaysValue = (val: number, unit: "days" | "months" | "years") => {
-    if (unit === "days") return val;
-    if (unit === "months") return val * 30;
-    return 365;
-  };
-
-  const days = getDaysValue(durationValue, durationUnit);
-
-  const handleUnitChange = (unit: "days" | "months" | "years") => {
-    setDurationUnit(unit);
-    if (unit === "days") {
-      setDurationValue(14);
-    } else if (unit === "months") {
-      setDurationValue(3);
-    } else {
-      setDurationValue(1);
-    }
-  };
+  const days = months * 30 + daysVal;
 
   useEffect(() => {
     const storedSubjects = sessionStorage.getItem("weakSubjects");
@@ -198,59 +181,75 @@ function PlanConfigContent() {
           </div>
         </div>
 
-        {/* Days selector — up to 365 days */}
+        {/* Study Duration – Two sliders */}
         <div className="bg-gray-900/60 backdrop-blur-sm border border-gray-800/50 rounded-2xl p-6 mb-6">
           <label className="block text-white font-semibold mb-4">
             Study Duration
           </label>
 
-          {/* Unit selector buttons */}
-          <div className="flex gap-3 mb-4">
-            {(["days", "months", "years"] as const).map((unit) => (
-              <button
-                key={unit}
-                type="button"
-                onClick={() => handleUnitChange(unit)}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all border ${
-                  durationUnit === unit
-                    ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300"
-                    : "bg-gray-800/30 border-gray-800/50 text-gray-400 hover:border-gray-700"
-                }`}
-              >
-                {unit === "days" ? "Days" : unit === "months" ? "Months" : "Year"}
-              </button>
-            ))}
+          <div className="flex flex-col md:flex-row items-center gap-4">
+            {/* Months Slider */}
+            <div className="flex-1 w-full space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-400">Months <span className="text-xs text-gray-500">(30 days/mo)</span></span>
+                <span className="text-indigo-400 font-semibold text-sm bg-gray-800/50 px-2 py-0.5 rounded border border-gray-700/30">
+                  {months} mo
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={12}
+                value={months}
+                onChange={(e) => setMonths(parseInt(e.target.value))}
+                className="w-full h-2 bg-gray-800 rounded-full appearance-none cursor-pointer accent-indigo-500"
+              />
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>0 mo</span>
+                <span>12 mo</span>
+              </div>
+            </div>
+
+            {/* Plus sign */}
+            <div className="text-2xl font-bold text-indigo-400 px-2 select-none md:mt-2">
+              +
+            </div>
+
+            {/* Days Slider */}
+            <div className="flex-1 w-full space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-400">Days</span>
+                <span className="text-indigo-400 font-semibold text-sm bg-gray-800/50 px-2 py-0.5 rounded border border-gray-700/30">
+                  {daysVal} days
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={30}
+                value={daysVal}
+                onChange={(e) => setDaysVal(parseInt(e.target.value))}
+                className="w-full h-2 bg-gray-800 rounded-full appearance-none cursor-pointer accent-indigo-500"
+              />
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>0 days</span>
+                <span>30 days</span>
+              </div>
+            </div>
           </div>
 
-          {/* Value selector dropdown */}
-          <div className="space-y-2">
-            <label className="block text-xs text-gray-400">Select Duration</label>
-            <select
-              value={durationValue}
-              onChange={(e) => setDurationValue(parseInt(e.target.value))}
-              className="w-full bg-gray-900/50 border border-gray-800/80 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all cursor-pointer"
-            >
-              {durationUnit === "days" &&
-                Array.from({ length: 30 }, (_, i) => i + 1).map((val) => (
-                  <option key={val} value={val} className="bg-gray-950">
-                    {val} day{val > 1 ? "s" : ""}
-                  </option>
-                ))}
-              {durationUnit === "months" &&
-                Array.from({ length: 12 }, (_, i) => i + 1).map((val) => (
-                  <option key={val} value={val} className="bg-gray-950">
-                    {val} month{val > 1 ? "s" : ""}
-                  </option>
-                ))}
-              {durationUnit === "years" && (
-                <option value={1} className="bg-gray-950">1 year</option>
-              )}
-            </select>
+          <div className="mt-4 pt-3 border-t border-gray-800/50 flex justify-between items-center">
+            <span className="text-sm text-gray-400">Total Preparation Time:</span>
+            <span className="text-base font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">
+              {days} day{days !== 1 ? "s" : ""}
+            </span>
           </div>
 
-          <p className="text-xs text-indigo-400 font-semibold mt-3">
-            Timeline: {days} days of preparation
-          </p>
+          {days === 0 && (
+            <p className="text-xs text-red-400 font-semibold mt-3 animate-pulse">
+              ⚠️ Please select a duration of at least 1 day.
+            </p>
+          )}
         </div>
 
         {/* Hours per day */}
@@ -293,7 +292,8 @@ function PlanConfigContent() {
         <button
           id="generate-plan-btn"
           onClick={handleGenerate}
-          className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-lg font-bold rounded-2xl transition-all shadow-lg shadow-indigo-500/20 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/30 active:translate-y-0"
+          disabled={days === 0}
+          className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-lg font-bold rounded-2xl transition-all shadow-lg shadow-indigo-500/20 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/30 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           🚀 Generate My Study Plan
         </button>

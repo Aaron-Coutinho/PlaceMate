@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { api } from "@/lib/api";
+import { Markdown } from "@/components/Markdown";
 
 type Tab = "notes" | "videos" | "mcqs";
 
@@ -211,9 +212,11 @@ function DayPlayerContent() {
         <div className="bg-gray-900/60 backdrop-blur-sm border border-gray-800/50 rounded-2xl p-6 mb-8 min-h-[300px]">
           {activeTab === "notes" && (
             <div className="prose prose-invert prose-sm max-w-none">
-              <div className="whitespace-pre-wrap text-gray-300 leading-relaxed">
-                {day.notes || "Notes will be available soon."}
-              </div>
+              {day.notes ? (
+                <Markdown content={day.notes} />
+              ) : (
+                <div className="text-gray-400">Notes will be available soon.</div>
+              )}
             </div>
           )}
 
