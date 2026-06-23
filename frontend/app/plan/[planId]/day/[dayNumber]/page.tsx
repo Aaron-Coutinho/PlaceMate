@@ -90,14 +90,26 @@ function RateLimitScreen({
   );
 }
 
-// ─── MCQ Quiz Component ───────────────────────────────────────────────────────
+type Difficulty = "easy" | "medium" | "hard";
 
-function MCQQuiz({ mcqs }: { mcqs: MCQ[] }) {
+function MCQQuiz({
+  mcqs: initialMcqs,
+  planId,
+  dayNumber,
+}: {
+  mcqs: MCQ[];
+  planId: string;
+  dayNumber: number;
+}) {
+  const [mcqs, setMcqs] = useState<MCQ[]>(initialMcqs);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [scores, setScores] = useState<boolean[]>([]);
   const [done, setDone] = useState(false);
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
   const current = mcqs[currentIdx];
   const totalQuestions = mcqs.length;
@@ -124,10 +136,35 @@ function MCQQuiz({ mcqs }: { mcqs: MCQ[] }) {
     }
   };
 
-  const correctCount = scores.filter(Boolean).length;
+  const handleGenerateNew = async () => {
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const res = await api.post<{ mcqs: MCQ[]; difficulty: string }>(
+        `/plan/${planId}/day/${dayNumber}/mcqs`,
+        { difficulty }
+      );
+      setMcqs(res.mcqs);
+      setCurrentIdx(0);
+      setSelected(null);
+      setRevealed(false);
+      setScores([]);
+      setDone(false);
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Failed to generate MCQs.");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
-  // Extract letter from option string like "A. Something"
+  const correctCount = scores.filter(Boolean).length;
   const getLetter = (option: string) => option.split(".")[0].trim();
+
+  const difficultyConfig: Record<Difficulty, { label: string; color: string; active: string }> = {
+    easy:   { label: "Easy",   color: "border-emerald-700 text-emerald-400", active: "bg-emerald-500/20 border-emerald-500 text-emerald-300" },
+    medium: { label: "Medium", color: "border-amber-700 text-amber-400",    active: "bg-amber-500/20 border-amber-500 text-amber-300" },
+    hard:   { label: "Hard",   color: "border-red-700 text-red-400",         active: "bg-red-500/20 border-red-500 text-red-300" },
+  };
 
   if (done) {
     const pct = Math.round((correctCount / totalQuestions) * 100);
@@ -146,28 +183,60 @@ function MCQQuiz({ mcqs }: { mcqs: MCQ[] }) {
           {pct >= 60 ? "🎉 Well done!" : "📚 Keep studying!"}
         </h3>
         <p className="text-gray-400 text-sm mb-6">
-          You scored {correctCount} / {totalQuestions} on today's practice
-          questions.
+          You scored {correctCount} / {totalQuestions} on today's practice questions.
         </p>
-        <button
-          onClick={() => {
-            setCurrentIdx(0);
-            setSelected(null);
-            setRevealed(false);
-            setScores([]);
-            setDone(false);
-          }}
-          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium transition-all"
-        >
-          Retry Quiz
-        </button>
+
+        {/* Difficulty selector */}
+        <div className="mb-4">
+          <p className="text-xs text-gray-500 mb-2">Want more practice? Select difficulty:</p>
+          <div className="flex justify-center gap-2">
+            {(["easy", "medium", "hard"] as Difficulty[]).map((d) => (
+              <button
+                key={d}
+                onClick={() => setDifficulty(d)}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  difficulty === d ? difficultyConfig[d].active : difficultyConfig[d].color + " bg-transparent hover:bg-gray-800"
+                }`}
+              >
+                {difficultyConfig[d].label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-3 justify-center">
+          <button
+            onClick={() => {
+              setCurrentIdx(0);
+              setSelected(null);
+              setRevealed(false);
+              setScores([]);
+              setDone(false);
+            }}
+            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium transition-all"
+          >
+            Retry Same Quiz
+          </button>
+          <button
+            onClick={handleGenerateNew}
+            disabled={generating}
+            className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-all flex items-center gap-2"
+          >
+            {generating ? (
+              <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Generating...</>
+            ) : (
+              <>✨ Generate New MCQs</>
+            )}
+          </button>
+        </div>
+        {genError && <p className="text-red-400 text-xs mt-3">{genError}</p>}
       </div>
     );
   }
 
   return (
     <div>
-      {/* Progress */}
+      {/* Progress + difficulty */}
       <div className="flex items-center justify-between mb-4">
         <span className="text-xs text-gray-500">
           Question {currentIdx + 1} of {totalQuestions}
@@ -227,7 +296,7 @@ function MCQQuiz({ mcqs }: { mcqs: MCQ[] }) {
         })}
       </div>
 
-      {/* Explanation (revealed after answer) */}
+      {/* Explanation */}
       {revealed && (
         <div className="bg-gray-800/40 border border-gray-700/50 rounded-xl p-4 mb-5 text-sm">
           <p className="text-gray-300 leading-relaxed">
@@ -519,7 +588,7 @@ function DayPlayerContent() {
                   </p>
                 </div>
               ) : (
-                <MCQQuiz mcqs={day.mcqs} />
+                <MCQQuiz mcqs={day.mcqs} planId={planId} dayNumber={dayNumber} />
               )}
             </div>
           )}

@@ -6,6 +6,7 @@ Calculates per-subject scores and identifies weak subjects.
 """
 
 import uuid
+import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.middleware.auth import get_current_uid
@@ -16,6 +17,9 @@ from app.models.schemas import (
     SubjectScore,
     TestResult,
 )
+
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/test", tags=["Assessment Test"])
 
@@ -145,12 +149,13 @@ async def submit_test(
 
     # Store result in Firestore
     test_id = str(uuid.uuid4())
+    submitted_at = datetime.now(timezone.utc).isoformat()
     result_data = {
         "test_id": test_id,
         "subject_scores": [s.model_dump() for s in subject_scores],
         "overall_percentage": round(overall, 1),
         "weak_subjects": weak_subjects,
-        "submitted_at": datetime.now(timezone.utc).isoformat(),
+        "submitted_at": submitted_at,
     }
 
     db.collection("users").document(uid).collection("testResults").document(
@@ -162,7 +167,88 @@ async def submit_test(
         subject_scores=subject_scores,
         overall_percentage=round(overall, 1),
         weak_subjects=weak_subjects,
+        submitted_at=submitted_at,
     )
+
+
+@router.get("/history", response_model=list[TestResult])
+async def get_test_history(uid: str = Depends(get_current_uid)):
+    """
+    List all previously taken test results, ordered by submission time (newest first).
+    """
+    db = get_db()
+    results_ref = db.collection("users").document(uid).collection("testResults")
+    docs = results_ref.stream()
+
+    results = []
+    for doc in docs:
+        try:
+            data = doc.to_dict()
+            if "test_id" not in data:
+                data["test_id"] = doc.id
+            if "submitted_at" not in data:
+                data["submitted_at"] = datetime.now(timezone.utc).isoformat()
+            if "subject_scores" not in data:
+                data["subject_scores"] = []
+            if "overall_percentage" not in data:
+                data["overall_percentage"] = 0.0
+            if "weak_subjects" not in data:
+                data["weak_subjects"] = []
+            results.append(TestResult(**data))
+        except Exception as parse_err:
+            logger.warning(f"Skipping malformed test result doc {doc.id}: {parse_err}")
+            continue
+
+    results.sort(key=lambda x: x.submitted_at or "", reverse=True)
+    return results
+
+
+@router.delete("/history")
+async def clear_test_history(uid: str = Depends(get_current_uid)):
+    """
+    Delete ALL test results for the current user from Firestore.
+    Uses batched deletes to stay within Firestore limits.
+    """
+    db = get_db()
+    results_ref = db.collection("users").document(uid).collection("testResults")
+    docs = results_ref.stream()
+
+    batch = db.batch()
+    count = 0
+    total = 0
+    for doc in docs:
+        batch.delete(doc.reference)
+        count += 1
+        total += 1
+        if count >= 450:
+            batch.commit()
+            batch = db.batch()
+            count = 0
+
+    if count > 0:
+        batch.commit()
+
+    logger.info(f"Cleared {total} test result(s) for uid={uid}")
+    return {"message": f"Cleared {total} test result(s) successfully", "deleted": total}
+
+
+@router.delete("/{test_id}")
+async def delete_test_result(test_id: str, uid: str = Depends(get_current_uid)):
+    """
+    Delete a specific assessment test result.
+    """
+    db = get_db()
+    result_ref = db.collection("users").document(uid).collection("testResults").document(test_id)
+    result_doc = result_ref.get()
+
+    if not result_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Test result not found",
+        )
+
+    result_ref.delete()
+    return {"message": "Test result deleted successfully"}
 
 
 def _identify_weak_subjects(

@@ -69,6 +69,7 @@ class TestResult(BaseModel):
     subject_scores: list[SubjectScore]
     overall_percentage: float
     weak_subjects: list[str]
+    submitted_at: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +82,17 @@ class PlanConfig(BaseModel):
     topics: list[str] = Field(..., min_length=1)
     days: int = Field(..., ge=1, le=390)
     hours_per_day: int = Field(..., ge=1, le=8)
+
+
+class PlanMetadata(BaseModel):
+    """Metadata of a study plan stored in Firestore."""
+    plan_id: str
+    created_at: str
+    days: int
+    hours_per_day: int
+    weak_subjects: list[str]
+    selected_topics: list[str]
+    status: str
 
 
 class DayPlan(BaseModel):
@@ -98,6 +110,7 @@ class PlanResponse(BaseModel):
     plan_id: str
     days: int
     message: str = "Study plan generated successfully"
+
 
 
 # ---------------------------------------------------------------------------

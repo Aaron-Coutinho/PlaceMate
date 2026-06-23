@@ -32,6 +32,7 @@ export interface TestResult {
   subject_scores: SubjectScore[];
   overall_percentage: number;
   weak_subjects: string[];
+  submitted_at?: string;
 }
 
 export interface AnswerSubmission {
@@ -48,6 +49,16 @@ export interface PlanConfig {
   /** @min 1 @max 390 */
   days: number;
   hours_per_day: number;
+}
+
+export interface PlanMetadata {
+  plan_id: string;
+  created_at: string;
+  days: number;
+  hours_per_day: number;
+  weak_subjects: string[];
+  selected_topics: string[];
+  status: string;
 }
 
 export interface DayPlan {

@@ -209,25 +209,91 @@ async def generate_study_plan(
     return all_days
 
 
-async def generate_detailed_notes(
-    subject: str, topics: list[str], _retries: int = 2
+async def _generate_notes_with_groq(
+    subject: str,
+    topics: list[str],
+    previous_topics: list[str],
 ) -> str:
     """
-    Generate detailed study notes for a specific day's topics.
-
-    Automatically retries up to _retries times on 429 RESOURCE_EXHAUSTED,
-    waiting the number of seconds the API tells us in retryDelay.
-
-    Raises:
-        RateLimitError  – if quota is still exhausted after all retries
-        Exception       – for any other Gemini or network error
+    Groq fallback for notes generation (llama-3.3-70b-versatile).
+    Called automatically when Gemini is rate-limited or unavailable.
     """
-    client = _get_client()
+    from groq import Groq
+    client = Groq(api_key=settings.GROQ_API_KEY)
+
+    prev_context = (
+        f"\n\nIMPORTANT: The student has already covered these topics in previous sessions: "
+        f"{', '.join(previous_topics)}. Do NOT re-explain those. Focus exclusively on the current topics listed above."
+        if previous_topics else ""
+    )
+
     prompt = f"""You are an expert placement preparation tutor.
 
 Generate comprehensive, extremely detailed, and well-structured study notes for the following:
 - Subject: {subject}
-- Topics: {', '.join(topics)}
+- Topics: {', '.join(topics)}{prev_context}
+
+The notes should be rich and fully cover the concepts. Ensure you include:
+1. **Core Concepts & Definitions**: Thorough explanation of key concepts.
+2. **Detailed Code Examples (if relevant to the topics)**: Show well-documented implementation in Python, Java, or C++.
+3. **Complexity Analysis**: Clearly explain time and space complexity of algorithms/operations (if applicable).
+4. **Common Interview Questions & Patterns**: Highlight what interviewers look for and the common mistakes students make.
+5. **Key Formulas/Shortcuts (if relevant)**.
+
+Format requirements:
+- Return ONLY clean, professional markdown format
+- Be around 500-1000 words in length for depth
+- Use bullet points, subheaders, code blocks, and bold text for scanning readability
+
+Return ONLY the markdown notes, no JSON wrappers, no extra conversational preamble."""
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You are a precise technical tutor. Return only well-formatted markdown."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.7,
+        max_tokens=4096,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+async def generate_detailed_notes(
+    subject: str,
+    topics: list[str],
+    previous_topics: list[str] | None = None,
+    _retries: int = 2,
+) -> str:
+    """
+    Generate detailed study notes for a specific day's topics.
+
+    Args:
+        subject:          Subject name (e.g. "DSA", "Aptitude")
+        topics:           Topics for this day (e.g. ["Binary Search", "Sorting"])
+        previous_topics:  Topics already covered for this subject on earlier days.
+                          The AI will be told to skip these and focus only on today's topics.
+        _retries:         Number of Gemini retries before switching to Groq fallback.
+
+    Flow:
+        1. Try Gemini (up to _retries times on 429/503).
+        2. If Gemini is exhausted → auto-fallback to Groq.
+        3. If Groq also fails → raise RateLimitError.
+    """
+    client = _get_client()
+
+    prev_context = (
+        f"\n\nIMPORTANT: The student has already studied these {subject} topics in previous sessions: "
+        f"{', '.join(previous_topics)}. Do NOT re-explain or repeat those concepts. "
+        f"Focus exclusively on the current topics listed above."
+        if previous_topics else ""
+    )
+
+    prompt = f"""You are an expert placement preparation tutor.
+
+Generate comprehensive, extremely detailed, and well-structured study notes for the following:
+- Subject: {subject}
+- Topics: {', '.join(topics)}{prev_context}
 
 The notes should be rich and fully cover the concepts. Ensure you include:
 1. **Core Concepts & Definitions**: Thorough explanation of key concepts.
@@ -252,6 +318,7 @@ Return ONLY the markdown notes, no JSON wrappers, no extra conversational preamb
                 contents=prompt,
                 config=_generation_config(),
             )
+            logger.info(f"[Gemini] Notes generated successfully for {subject} — {topics}")
             return response.text.strip()
 
         except Exception as e:
@@ -272,12 +339,22 @@ Return ONLY the markdown notes, no JSON wrappers, no extra conversational preamb
                     last_error = e
                     continue
                 else:
-                    # All retries exhausted — surface as RateLimitError
+                    # All Gemini retries exhausted — try Groq as fallback
                     logger.warning(
-                        f"Notes: Gemini API busy — exhausted after {_retries + 1} attempts. "
-                        f"Client should retry after {retry_after}s."
+                        f"Notes: Gemini exhausted after {_retries + 1} attempts. "
+                        f"Switching to Groq fallback for {subject} — {topics}."
                     )
-                    raise RateLimitError(retry_after=retry_after) from e
+                    try:
+                        notes = await _generate_notes_with_groq(
+                            subject=subject,
+                            topics=topics,
+                            previous_topics=previous_topics or [],
+                        )
+                        logger.info(f"[Groq Fallback] Notes generated for {subject} — {topics}")
+                        return notes
+                    except Exception as groq_err:
+                        logger.error(f"[Groq Fallback] Notes generation also failed: {groq_err}")
+                        raise RateLimitError(retry_after=retry_after) from groq_err
             else:
                 # Non-rate-limit error — don't retry, propagate immediately
                 logger.error(f"Notes generation failed (non-quota error): {e}")

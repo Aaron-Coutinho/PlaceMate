@@ -61,27 +61,36 @@ async def generate_mcqs_for_day(
     subject: str,
     topics: list[str],
     count: int = MCQ_COUNT,
+    difficulty: str = "medium",
 ) -> list[dict[str, Any]]:
     """
     Generate placement-level MCQs using Groq (llama-3.3-70b-versatile).
 
-    Groq's 14,400 RPD free tier means this will essentially never rate-limit
-    under normal usage, unlike the Gemini 20 RPD limit.
+    Args:
+        subject:    Subject name.
+        topics:     Topics for this day.
+        count:      Number of MCQs to generate (default 5).
+        difficulty: "easy" | "medium" | "hard" (default "medium").
 
-    Returns a list of MCQ dicts, each with:
-      - question, options (list of 4), correct (letter A/B/C/D), explanation
-
+    Returns a list of MCQ dicts with: question, options (4), correct (A-D), explanation.
     Raises:
-        RateLimitError  — if Groq rate limit is hit (very unlikely)
+        RateLimitError  — if Groq rate limit is hit
         ValueError      — if response JSON is malformed
     """
     client = _get_client()
 
+    difficulty_guidance = {
+        "easy": "Focus on basic definitions, simple recall, and foundational concepts. Suitable for beginners.",
+        "medium": "Focus on application and understanding. Mix conceptual and practical questions at placement exam level.",
+        "hard": "Focus on tricky edge cases, complex analysis, and advanced scenarios. Suitable for FAANG-level preparation.",
+    }.get(difficulty.lower(), "Focus on application and understanding at placement exam level.")
+
     prompt = f"""You are an expert placement exam question writer.
 
-Generate exactly {count} high-quality multiple choice questions for a placement exam on:
+Generate exactly {count} multiple choice questions on:
 - Subject: {subject}
 - Topics: {', '.join(topics)}
+- Difficulty: {difficulty.upper()} — {difficulty_guidance}
 
 Return a valid JSON array of exactly {count} objects with this structure:
 [
@@ -94,12 +103,11 @@ Return a valid JSON array of exactly {count} objects with this structure:
 ]
 
 Rules:
-1. Questions must be placement-exam level — test deep understanding, not trivial recall.
-2. Each question has exactly 4 options labeled A, B, C, D.
-3. "correct" is a single letter: A, B, C, or D.
-4. "explanation" is 1-2 sentences explaining why that answer is correct.
-5. Cover different aspects across all {count} questions — no repeated concepts.
-6. Return ONLY the raw JSON array. No markdown fences, no preamble, no extra text."""
+1. Each question has exactly 4 options labeled A, B, C, D.
+2. "correct" is a single letter: A, B, C, or D.
+3. "explanation" is 1-2 sentences explaining why that answer is correct.
+4. Cover different aspects across all {count} questions — no repeated concepts.
+5. Return ONLY the raw JSON array. No markdown fences, no preamble, no extra text."""
 
     try:
         response = client.chat.completions.create(

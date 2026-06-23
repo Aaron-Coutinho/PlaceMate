@@ -10,9 +10,10 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from pydantic import BaseModel
 from app.middleware.auth import get_current_uid
 from app.firebase_init import get_db
-from app.models.schemas import PlanConfig, PlanResponse
+from app.models.schemas import PlanConfig, PlanResponse, PlanMetadata
 from app.services.ai_service import generate_study_plan, generate_detailed_notes, RateLimitError
 from app.services.youtube_service import fetch_videos_for_topic
 from app.services.mcq_service import generate_mcqs_for_day
@@ -103,6 +104,122 @@ async def generate_plan(
     )
 
 
+@router.get("", response_model=list[PlanMetadata])
+async def list_plans(uid: str = Depends(get_current_uid)):
+    """
+    List all study plans created by the user, ordered by creation time (newest first).
+    """
+    db = get_db()
+    plans_ref = db.collection("users").document(uid).collection("plans")
+    docs = plans_ref.stream()
+
+    plans = []
+    for doc in docs:
+        data = doc.to_dict()
+        if "plan_id" not in data:
+            data["plan_id"] = doc.id
+        if "created_at" not in data:
+            data["created_at"] = datetime.now(timezone.utc).isoformat()
+        if "days" not in data:
+            data["days"] = 0
+        if "hours_per_day" not in data:
+            data["hours_per_day"] = 0
+        if "weak_subjects" not in data:
+            data["weak_subjects"] = []
+        if "selected_topics" not in data:
+            data["selected_topics"] = []
+        if "status" not in data:
+            data["status"] = "active"
+        plans.append(data)
+
+    plans.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return [PlanMetadata(**p) for p in plans]
+
+
+@router.delete("/{plan_id}")
+async def delete_plan(plan_id: str, uid: str = Depends(get_current_uid)):
+    """
+    Delete a study plan and all of its daily contents from Firestore.
+    """
+    db = get_db()
+    user_ref = db.collection("users").document(uid)
+    plan_ref = user_ref.collection("plans").document(plan_id)
+    plan_doc = plan_ref.get()
+
+    if not plan_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plan not found",
+        )
+
+    # Delete all documents under days_content subcollection
+    days_ref = plan_ref.collection("days_content")
+    days_docs = days_ref.stream()
+
+    batch = db.batch()
+    count = 0
+    for doc in days_docs:
+        batch.delete(doc.reference)
+        count += 1
+        if count >= 450:  # Firestore batch limit is 500; keep headroom
+            batch.commit()
+            batch = db.batch()
+            count = 0
+    if count > 0:
+        batch.commit()
+
+    logger.info(f"Deleted {count} days_content docs for plan {plan_id}")
+
+    # Delete the plan document itself
+    plan_ref.delete()
+    logger.info(f"Deleted plan document {plan_id} for uid={uid}")
+
+    # If this was the active plan, promote the next most recent plan (or clear)
+    user_doc = user_ref.get()
+    user_data = user_doc.to_dict() if user_doc.exists else {}
+    if user_data and user_data.get("current_plan_id") == plan_id:
+        # Query remaining plans — deleted plan is already gone from Firestore
+        remaining_docs = user_ref.collection("plans").stream()
+        remaining: list[dict] = []
+        for doc in remaining_docs:
+            p_data = doc.to_dict() or {}
+            if "plan_id" not in p_data:
+                p_data["plan_id"] = doc.id
+            if "created_at" in p_data:
+                remaining.append(p_data)
+
+        if remaining:
+            remaining.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            new_active_id = remaining[0]["plan_id"]
+            user_ref.update({"current_plan_id": new_active_id})
+            logger.info(f"Active plan auto-switched to {new_active_id} for uid={uid}")
+        else:
+            user_ref.update({"current_plan_id": None})
+            logger.info(f"No remaining plans — current_plan_id cleared for uid={uid}")
+
+    return {"message": "Plan deleted successfully"}
+
+
+@router.post("/{plan_id}/activate")
+async def activate_plan(plan_id: str, uid: str = Depends(get_current_uid)):
+    """
+    Set a study plan as the user's active plan.
+    """
+    db = get_db()
+    user_ref = db.collection("users").document(uid)
+    plan_ref = user_ref.collection("plans").document(plan_id)
+    plan_doc = plan_ref.get()
+
+    if not plan_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plan not found",
+        )
+
+    user_ref.update({"current_plan_id": plan_id})
+    return {"message": "Plan activated successfully", "current_plan_id": plan_id}
+
+
 @router.get("/{plan_id}")
 async def get_plan(plan_id: str, uid: str = Depends(get_current_uid)):
     """
@@ -180,16 +297,48 @@ async def get_day_detail(
     needs_mcqs   = not day_data.get("mcqs")
     needs_videos = not day_data.get("videos") and bool(youtube_query)
 
-    # ── Nothing to generate — return immediately ─────────────────────
+    # ── Nothing to generate — return immediately —————————————————————
     if not (needs_notes or needs_mcqs or needs_videos):
         return day_data
+
+    # ── Gather previous topics from same subject for context ————————
+    previous_topics: list[str] = []
+    if needs_notes:
+        try:
+            plan_ref = (
+                db.collection("users")
+                .document(uid)
+                .collection("plans")
+                .document(plan_id)
+            )
+            prev_docs = (
+                plan_ref.collection("days_content")
+                .where("subject", "==", subject)
+                .where("day_number", "<", day_number)
+                .order_by("day_number")
+                .stream()
+            )
+            for doc in prev_docs:
+                d = doc.to_dict()
+                previous_topics.extend(d.get("topics", []))
+            if previous_topics:
+                logger.info(
+                    f"[Context] Found {len(previous_topics)} previous {subject} topics "
+                    f"for day {day_number}: {previous_topics}"
+                )
+        except Exception as ctx_err:
+            logger.warning(f"[Context] Could not fetch previous topics: {ctx_err}")
 
     # ── Build coroutines for parallel execution ──────────────────────
     async def _get_notes():
         if not needs_notes:
             return day_data.get("notes", "")
         logger.info(f"[Gemini] Generating notes: plan={plan_id}, day={day_number}")
-        return await generate_detailed_notes(subject=subject, topics=topics)
+        return await generate_detailed_notes(
+            subject=subject,
+            topics=topics,
+            previous_topics=previous_topics if previous_topics else None,
+        )
 
     async def _get_mcqs():
         if not needs_mcqs:
@@ -263,3 +412,69 @@ async def get_day_detail(
         day_ref.update(updates)
 
     return day_data
+
+
+# ---------------------------------------------------------------------------
+# On-demand MCQ generation (with difficulty)
+# ---------------------------------------------------------------------------
+
+class MCQRequest(BaseModel):
+    difficulty: str = "medium"  # "easy" | "medium" | "hard"
+
+
+@router.post("/{plan_id}/day/{day_number}/mcqs")
+async def generate_new_mcqs(
+    plan_id: str,
+    day_number: int,
+    body: MCQRequest,
+    uid: str = Depends(get_current_uid),
+):
+    """
+    Generate a fresh set of MCQs for the given day at the requested difficulty.
+    Does NOT overwrite the cached MCQs in Firestore — only returns new ones.
+    """
+    db = get_db()
+    day_ref = (
+        db.collection("users")
+        .document(uid)
+        .collection("plans")
+        .document(plan_id)
+        .collection("days_content")
+        .document(f"day_{day_number}")
+    )
+    day_doc = day_ref.get()
+
+    if not day_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Day {day_number} not found",
+        )
+
+    day_data = day_doc.to_dict()
+    subject = day_data.get("subject", "")
+    topics = day_data.get("topics", [])
+    difficulty = body.difficulty.lower()
+    if difficulty not in ("easy", "medium", "hard"):
+        difficulty = "medium"
+
+    try:
+        logger.info(f"[Groq] On-demand MCQs [{difficulty}]: plan={plan_id}, day={day_number}")
+        mcqs = await generate_mcqs_for_day(
+            subject=subject, topics=topics, difficulty=difficulty
+        )
+        return {"mcqs": mcqs, "difficulty": difficulty}
+    except RateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": f"AI is busy. Please wait {e.retry_after} seconds and try again.",
+                "retry_after": e.retry_after,
+                "reason": "rate_limit",
+            },
+        )
+    except Exception as e:
+        logger.error(f"On-demand MCQ generation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate MCQs. Please try again.",
+        )
