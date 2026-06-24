@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { api } from "@/lib/api";
+import ProgressWidget from "@/components/ProgressWidget";
 import type { UserProfile, PlanMetadata, TestResult } from "@/types";
 
 export default function DashboardPage() {
@@ -226,8 +227,10 @@ function DashboardContent() {
 
         {/* Active Plan Hero Banner */}
         {activePlan && (
-          <div className="bg-gradient-to-r from-indigo-900/40 via-purple-900/30 to-gray-900/60 backdrop-blur-md border border-indigo-500/20 rounded-2xl p-6 md:p-8 mb-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-xl shadow-indigo-500/5 animate-in fade-in slide-in-from-top-4 duration-300">
-            <div className="flex-1">
+          <>
+            <ProgressWidget />
+            <div className="bg-gradient-to-r from-indigo-900/40 via-purple-900/30 to-gray-900/60 backdrop-blur-md border border-indigo-500/20 rounded-2xl p-6 md:p-8 mb-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-xl shadow-indigo-500/5 animate-in fade-in slide-in-from-top-4 duration-300">
+              <div className="flex-1">
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 uppercase tracking-wider mb-3 inline-block">
                 ⚡ Active Preparation
               </span>
@@ -255,6 +258,7 @@ function DashboardContent() {
               </svg>
             </button>
           </div>
+          </>
         )}
 
         {/* Action cards */}

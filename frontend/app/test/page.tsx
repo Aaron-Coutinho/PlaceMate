@@ -73,6 +73,21 @@ function TestFlow() {
     const optionLetter = String.fromCharCode(65 + optionIndex);
     setAnswers((prev) => ({ ...prev, [currentQuestion.id]: optionLetter }));
   };
+  const handleSubmit = async (finalAnswers: Record<string, string>) => {
+    setSubmitting(true);
+    try {
+      const result = await api.post("/test/submit", { answers: finalAnswers });
+      // Store result in sessionStorage for the results page
+      sessionStorage.setItem("testResult", JSON.stringify(result));
+      sessionStorage.setItem("timeElapsed", timeElapsed.toString());
+      router.push("/test/results");
+    } catch (err) {
+      setError("Failed to submit test. Please try again.");
+      setSubmitting(false);
+      console.error(err);
+    }
+  };
+
 
   const handleNext = useCallback(() => {
     if (!currentQuestion) return;
@@ -90,20 +105,7 @@ function TestFlow() {
     }
   };
 
-  const handleSubmit = async (finalAnswers: Record<string, string>) => {
-    setSubmitting(true);
-    try {
-      const result = await api.post("/test/submit", { answers: finalAnswers });
-      // Store result in sessionStorage for the results page
-      sessionStorage.setItem("testResult", JSON.stringify(result));
-      sessionStorage.setItem("timeElapsed", timeElapsed.toString());
-      router.push("/test/results");
-    } catch (err) {
-      setError("Failed to submit test. Please try again.");
-      setSubmitting(false);
-      console.error(err);
-    }
-  };
+
 
   // Loading state
   if (loading) {
@@ -123,12 +125,20 @@ function TestFlow() {
       <div className="min-h-screen flex items-center justify-center bg-gray-950">
         <div className="bg-gray-900/70 border border-red-500/30 rounded-2xl p-8 max-w-md text-center">
           <p className="text-red-400 mb-4">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+          <div className="flex gap-4 justify-center">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors animate-pulse"
+            >
+              Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -165,6 +175,16 @@ function TestFlow() {
       <div className="absolute bottom-[-15%] right-[-10%] w-[400px] h-[400px] rounded-full bg-purple-600/10 blur-[80px] pointer-events-none" />
 
       <div className="relative z-10 max-w-3xl mx-auto px-4 py-8">
+        {/* Back Button */}
+        <div className="mb-6">
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 transition-colors group"
+          >
+            <span className="transition-transform group-hover:-translate-x-0.5">←</span> Back to Dashboard
+          </button>
+        </div>
+
         {/* Header bar */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">

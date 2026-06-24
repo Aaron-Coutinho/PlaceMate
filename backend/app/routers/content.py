@@ -7,6 +7,8 @@ Video and MCQ endpoints will be expanded in Phase 3.
 
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from typing import Optional
 from app.middleware.auth import get_current_uid
 from app.firebase_init import get_db
 
@@ -14,10 +16,16 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/content", tags=["Day Content"])
 
+class CompleteDayRequest(BaseModel):
+    mcq_score: Optional[str] = None
+
 
 @router.post("/plan/{plan_id}/day/{day_number}/complete")
 async def complete_day(
-    plan_id: str, day_number: int, uid: str = Depends(get_current_uid)
+    plan_id: str, 
+    day_number: int, 
+    body: CompleteDayRequest = None,
+    uid: str = Depends(get_current_uid)
 ):
     """
     Mark a day as completed and unlock the next day.
@@ -66,7 +74,11 @@ async def complete_day(
         return {"message": f"Day {day_number} was already completed"}
 
     # Complete current day
-    current_day_ref.update({"is_completed": True})
+    update_data = {"is_completed": True}
+    if body and body.mcq_score:
+        update_data["mcq_score"] = body.mcq_score
+    
+    current_day_ref.update(update_data)
 
     # Unlock next day
     next_day_number = day_number + 1

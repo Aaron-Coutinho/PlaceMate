@@ -136,6 +136,38 @@ def _parse_json_response(raw_text: str) -> list[dict[str, Any]]:
     return result
 
 
+async def _generate_study_plan_batch_with_groq(
+    weak_subjects: list[str],
+    topics: list[str],
+    total_days: int,
+    hours_per_day: int,
+    batch_start: int,
+    batch_end: int,
+) -> list[dict[str, Any]]:
+    """Groq fallback for study plan batch generation (llama-3.3-70b-versatile)."""
+    from groq import Groq
+    client = Groq(api_key=settings.GROQ_API_KEY)
+
+    prompt = _build_plan_prompt(
+        weak_subjects, topics, total_days, hours_per_day, batch_start, batch_end
+    )
+
+    logger.info(f"[Groq Fallback] Generating study plan batch {batch_start}-{batch_end}")
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You are a precise technical tutor. Return only valid JSON array. Do not wrap in ```json or any other text, just raw valid JSON array."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.7,
+        max_tokens=4096,
+    )
+
+    raw_text = (response.choices[0].message.content or "").strip()
+    return _parse_json_response(raw_text)
+
+
 async def generate_study_plan(
     weak_subjects: list[str],
     topics: list[str],
@@ -147,6 +179,8 @@ async def generate_study_plan(
 
     Splits generation into batches of BATCH_SIZE days to prevent JSON truncation
     and handle long timelines (up to 390 days) smoothly.
+
+    If Gemini fails, instantly switches to Groq to generate the study plan.
 
     Returns a list of day plan dicts, each containing:
     - day, subject, topics, learning_objectives, youtube_search_query
@@ -180,29 +214,35 @@ async def generate_study_plan(
                 config=_generation_config(),
             )
             batch_plan = _parse_json_response(response.text)
+            logger.info(f"[Gemini] Plan batch {batch_start}-{batch_end} generated successfully")
 
-            # Validate structure
-            for day_item in batch_plan:
-                required_keys = {
-                    "day", "subject", "topics", "learning_objectives",
-                    "youtube_search_query",
-                }
-                missing = required_keys - set(day_item.keys())
-                if missing:
-                    raise ValueError(
-                        f"Day {day_item.get('day', '?')} missing keys: {missing}"
-                    )
-
-            all_days.extend(batch_plan)
-
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"Failed to parse Gemini JSON (batch {batch_start}-{batch_end}): {e}"
+        except Exception as gemini_err:
+            logger.warning(
+                f"[Gemini] Plan generation failed for batch {batch_start}-{batch_end}: {gemini_err}. "
+                f"Switching to Groq fallback immediately."
             )
-            raise ValueError(
-                "AI returned invalid JSON. Please try generating the plan again."
-            ) from e
+            try:
+                batch_plan = await _generate_study_plan_batch_with_groq(
+                    weak_subjects, topics, days, hours_per_day, batch_start, batch_end
+                )
+                logger.info(f"[Groq Fallback] Plan batch {batch_start}-{batch_end} generated successfully")
+            except Exception as groq_err:
+                logger.error(f"[Groq Fallback] Plan generation also failed: {groq_err}")
+                raise ValueError("Both Gemini and Groq plan generation failed. Please try again.") from groq_err
 
+        # Validate structure
+        for day_item in batch_plan:
+            required_keys = {
+                "day", "subject", "topics", "learning_objectives",
+                "youtube_search_query",
+            }
+            missing = required_keys - set(day_item.keys())
+            if missing:
+                raise ValueError(
+                    f"Day {day_item.get('day', '?')} missing keys: {missing}"
+                )
+
+        all_days.extend(batch_plan)
         batch_start = batch_end + 1
 
     logger.info(f"Successfully generated {len(all_days)}-day study plan")
@@ -268,16 +308,9 @@ async def generate_detailed_notes(
     """
     Generate detailed study notes for a specific day's topics.
 
-    Args:
-        subject:          Subject name (e.g. "DSA", "Aptitude")
-        topics:           Topics for this day (e.g. ["Binary Search", "Sorting"])
-        previous_topics:  Topics already covered for this subject on earlier days.
-                          The AI will be told to skip these and focus only on today's topics.
-        _retries:         Number of Gemini retries before switching to Groq fallback.
-
     Flow:
-        1. Try Gemini (up to _retries times on 429/503).
-        2. If Gemini is exhausted → auto-fallback to Groq.
+        1. Try Gemini.
+        2. If Gemini fails even once → instantly switch to Groq fallback.
         3. If Groq also fails → raise RateLimitError.
     """
     client = _get_client()
@@ -309,56 +342,67 @@ Format requirements:
 
 Return ONLY the markdown notes, no JSON wrappers, no extra conversational preamble."""
 
-    last_error: Exception | None = None
+    try:
+        response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt,
+            config=_generation_config(),
+        )
+        logger.info(f"[Gemini] Notes generated successfully for {subject} — {topics}")
+        return response.text.strip()
 
-    for attempt in range(_retries + 1):  # attempt 0, 1, 2
+    except Exception as e:
+        logger.warning(
+            f"Notes: Gemini API failed with error: {e}. "
+            f"Switching to Groq fallback immediately for {subject} — {topics}."
+        )
         try:
-            response = client.models.generate_content(
-                model=MODEL_ID,
-                contents=prompt,
-                config=_generation_config(),
+            notes = await _generate_notes_with_groq(
+                subject=subject,
+                topics=topics,
+                previous_topics=previous_topics or [],
             )
-            logger.info(f"[Gemini] Notes generated successfully for {subject} — {topics}")
-            return response.text.strip()
+            logger.info(f"[Groq Fallback] Notes generated successfully for {subject} — {topics}")
+            return notes
+        except Exception as groq_err:
+            logger.error(f"[Groq Fallback] Notes generation also failed: {groq_err}")
+            raise RateLimitError(retry_after=60) from groq_err
 
-        except Exception as e:
-            err_str = str(e)
 
-            # Detect quota-exhausted (429) or high-demand (503)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "503" in err_str or "UNAVAILABLE" in err_str:
-                # Parse retryDelay from the error message (e.g. 'retryDelay': '44s')
-                match = re.search(r'retryDelay[\'"]?:\s*[\'"]?(\d+)', err_str)
-                retry_after = int(match.group(1)) + 2 if match else 60
+async def generate_study_fact() -> str:
+    """Generate a cool, funny, or interesting study fact or quote using Groq."""
+    from groq import Groq
+    import random
+    client = Groq(api_key=settings.GROQ_API_KEY)
 
-                if attempt < _retries:
-                    logger.warning(
-                        f"Notes: Gemini API busy on attempt {attempt + 1}/{_retries + 1}. "
-                        f"Waiting {retry_after}s before retry…"
-                    )
-                    await asyncio.sleep(retry_after)
-                    last_error = e
-                    continue
-                else:
-                    # All Gemini retries exhausted — try Groq as fallback
-                    logger.warning(
-                        f"Notes: Gemini exhausted after {_retries + 1} attempts. "
-                        f"Switching to Groq fallback for {subject} — {topics}."
-                    )
-                    try:
-                        notes = await _generate_notes_with_groq(
-                            subject=subject,
-                            topics=topics,
-                            previous_topics=previous_topics or [],
-                        )
-                        logger.info(f"[Groq Fallback] Notes generated for {subject} — {topics}")
-                        return notes
-                    except Exception as groq_err:
-                        logger.error(f"[Groq Fallback] Notes generation also failed: {groq_err}")
-                        raise RateLimitError(retry_after=retry_after) from groq_err
-            else:
-                # Non-rate-limit error — don't retry, propagate immediately
-                logger.error(f"Notes generation failed (non-quota error): {e}")
-                raise
+    prompt = """You are a witty, supportive placement prep coach.
+Generate a short (1-2 sentences), cool, funny, or mind-blowing study tip, fact, or tech trivia related to coding, computer science, or learning.
+Keep it extremely brief and engaging (under 30 words) so it's quick to read on a loading screen.
+Examples:
+- "Did you know the first computer bug was a real moth found trapped in a relay by Grace Hopper in 1947?"
+- "Taking a 10-minute break for every 50 minutes of study is scientifically proven to boost long-term recall by 20%!"
+- "The average software engineer spends more time reading code than writing it. Clean code is a love letter to your future self."
+Return ONLY the fact or quote, with no conversational preamble or quotes around it."""
 
-    # Should never reach here, but satisfies type checker
-    raise last_error or RuntimeError("Notes generation failed unexpectedly")
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are a concise tech coach. Return only the fact text. No quotes around it."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.8,
+            max_tokens=100,
+        )
+        return (response.choices[0].message.content or "").strip().strip('"')
+    except Exception as e:
+        logger.error(f"Failed to generate study fact using Groq: {e}")
+        # Return a premium fallback fact
+        fallbacks = [
+            "Taking a 10-minute break for every 50 minutes of study boosts long-term recall by 20%!",
+            "The first computer bug was an actual moth found trapped in a computer relay by Grace Hopper in 1947.",
+            "Studies show that explaining a concept to an imaginary rubber duck helps you debug faster!",
+            "Clean code is not just readable; it's a love letter to your future self.",
+            "Did you know? The first computer programmer was Ada Lovelace, who wrote an algorithm for Charles Babbage's Analytical Engine in 1843!"
+        ]
+        return random.choice(fallbacks)

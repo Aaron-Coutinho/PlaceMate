@@ -17,6 +17,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { api } from "@/lib/api";
 import { TOPIC_MAP } from "@/config/topicMap";
 import type { PlanResponse } from "@/types";
+import InteractiveLoadingScreen from "@/components/InteractiveLoadingScreen";
 
 export default function PlanConfigPage() {
   return (
@@ -93,41 +94,11 @@ function PlanConfigContent() {
 
   if (generating) {
     return (
-      <main className="min-h-screen bg-gray-950 flex items-center justify-center relative overflow-hidden">
-        <div className="absolute top-[-15%] left-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-600/15 blur-[100px] pointer-events-none animate-pulse" />
-        <div className="absolute bottom-[-15%] right-[-10%] w-[400px] h-[400px] rounded-full bg-purple-600/15 blur-[80px] pointer-events-none animate-pulse" />
-
-        <div className="relative z-10 text-center max-w-md mx-4">
-          <div className="w-20 h-20 mx-auto mb-6 relative">
-            <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full" />
-            <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <div className="absolute inset-2 border-4 border-purple-500/20 rounded-full" />
-            <div className="absolute inset-2 border-4 border-purple-500 border-b-transparent rounded-full animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
-          </div>
-          <h2 className="text-2xl font-bold text-white mb-2">
-            Generating Your Study Plan
-          </h2>
-          <p className="text-gray-400 text-sm mb-6">
-            Our AI is crafting a personalized {days}-day plan
-            <br />
-            covering {selectedTopics.length} topics across{" "}
-            {activeWeakSubjects.length} subjects...
-          </p>
-          <div className="flex flex-wrap justify-center gap-2">
-            {["Analyzing topics...", "Building schedule...", "Creating notes..."].map(
-              (step, i) => (
-                <span
-                  key={i}
-                  className="px-3 py-1 bg-gray-800/50 text-gray-500 text-xs rounded-full animate-pulse"
-                  style={{ animationDelay: `${i * 0.5}s` }}
-                >
-                  {step}
-                </span>
-              )
-            )}
-          </div>
-        </div>
-      </main>
+      <InteractiveLoadingScreen
+        days={days}
+        topicsCount={selectedTopics.length}
+        subjectsCount={activeWeakSubjects.length}
+      />
     );
   }
 

@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { api } from "@/lib/api";
+import confetti from "canvas-confetti";
 
 interface DaySummary {
   day_number: number;
@@ -48,6 +49,41 @@ function PlanOverviewContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const fetchedRef = useRef(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+
+  useEffect(() => {
+    if (plan && plan.days.length > 0) {
+      const isAllCompleted = plan.days.every(d => d.is_completed);
+      if (isAllCompleted && !showCompletionModal) {
+        setShowCompletionModal(true);
+        // Fire confetti!
+        const duration = 3000;
+        const end = Date.now() + duration;
+        
+        const frame = () => {
+          confetti({
+            particleCount: 5,
+            angle: 60,
+            spread: 55,
+            origin: { x: 0 },
+            colors: ['#818cf8', '#c084fc', '#34d399']
+          });
+          confetti({
+            particleCount: 5,
+            angle: 120,
+            spread: 55,
+            origin: { x: 1 },
+            colors: ['#818cf8', '#c084fc', '#34d399']
+          });
+
+          if (Date.now() < end) {
+            requestAnimationFrame(frame);
+          }
+        };
+        frame();
+      }
+    }
+  }, [plan, showCompletionModal]);
 
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -98,7 +134,6 @@ function PlanOverviewContent() {
   const totalDays = plan.days.length;
   const progressPercent = totalDays > 0 ? (completedDays / totalDays) * 100 : 0;
 
-  // Find the first unlocked-but-not-completed day (current active day)
   const activeDayNumber =
     plan.days.find((d) => d.is_unlocked && !d.is_completed)?.day_number ?? -1;
 
@@ -257,6 +292,35 @@ function PlanOverviewContent() {
           })}
         </div>
       </div>
+
+      {/* Completion Modal */}
+      {showCompletionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-gray-900 border border-indigo-500/30 rounded-3xl p-8 max-w-md w-full shadow-2xl shadow-indigo-500/10 text-center animate-in zoom-in-95 duration-300">
+            <div className="w-20 h-20 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-indigo-500/30">
+              <span className="text-4xl">🎓</span>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-2">Plan Completed!</h2>
+            <p className="text-gray-400 mb-8">
+              Incredible work! You&apos;ve successfully finished all {totalDays} days of your {plan.selected_topics.length > 3 ? plan.selected_topics.slice(0, 3).join(", ") + "..." : plan.selected_topics.join(", ")} study plan.
+            </p>
+            <div className="space-y-3">
+              <button
+                onClick={() => router.push("/test")}
+                className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 hover:-translate-y-0.5"
+              >
+                Take New Assessment Test
+              </button>
+              <button
+                onClick={() => router.push("/dashboard")}
+                className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl transition-colors border border-gray-700"
+              >
+                Back to Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

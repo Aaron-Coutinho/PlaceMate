@@ -31,7 +31,7 @@ export function Markdown({ content }: MarkdownProps) {
             <h4 className="text-base font-bold text-gray-300 mt-3 mb-1.5 tracking-tight" {...props} />
           ),
           p: ({ node, ...props }) => (
-            <p className="my-3 text-gray-300 leading-relaxed text-sm md:text-base" {...props} />
+            <div className="my-3 text-gray-300 leading-relaxed text-sm md:text-base" {...props} />
           ),
           ul: ({ node, ...props }) => (
             <ul className="list-disc pl-6 my-4 text-gray-300 space-y-1.5" {...props} />

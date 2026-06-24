@@ -143,6 +143,8 @@ class DayContent(BaseModel):
     mcqs: list[MCQQuestion] = []
     is_unlocked: bool = False
     is_completed: bool = False
+    user_answers: list[Optional[str]] = []
+    mcq_score: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

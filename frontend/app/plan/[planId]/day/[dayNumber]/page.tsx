@@ -44,6 +44,8 @@ interface DayData {
   mcqs: MCQ[];
   is_unlocked: boolean;
   is_completed: boolean;
+  user_answers?: (string | null)[];
+  mcq_score?: string;
 }
 
 // ─── Rate-Limit Screen ───────────────────────────────────────────────────────
@@ -96,17 +98,74 @@ function MCQQuiz({
   mcqs: initialMcqs,
   planId,
   dayNumber,
+  userAnswers = [],
 }: {
   mcqs: MCQ[];
   planId: string;
   dayNumber: number;
+  userAnswers?: (string | null)[];
 }) {
   const [mcqs, setMcqs] = useState<MCQ[]>(initialMcqs);
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [revealed, setRevealed] = useState(false);
-  const [scores, setScores] = useState<boolean[]>([]);
-  const [done, setDone] = useState(false);
+  const [answers, setAnswers] = useState<(string | null)[]>(() => {
+    const arr = [...(userAnswers || [])];
+    while (arr.length < initialMcqs.length) {
+      arr.push(null);
+    }
+    return arr;
+  });
+
+  const [scores, setScores] = useState<boolean[]>(() => {
+    const scr: boolean[] = [];
+    for (let i = 0; i < initialMcqs.length; i++) {
+      const ans = userAnswers?.[i];
+      if (ans) {
+        scr.push(ans === initialMcqs[i].correct);
+      } else {
+        break;
+      }
+    }
+    return scr;
+  });
+
+  const [currentIdx, setCurrentIdx] = useState(() => {
+    for (let i = 0; i < initialMcqs.length; i++) {
+      if (userAnswers?.[i] === undefined || userAnswers?.[i] === null) {
+        return i;
+      }
+    }
+    return Math.max(0, initialMcqs.length - 1);
+  });
+
+  const [selected, setSelected] = useState<string | null>(() => {
+    const idx = (() => {
+      for (let i = 0; i < initialMcqs.length; i++) {
+        if (userAnswers?.[i] === undefined || userAnswers?.[i] === null) {
+          return i;
+        }
+      }
+      return Math.max(0, initialMcqs.length - 1);
+    })();
+    return userAnswers?.[idx] || null;
+  });
+
+  const [revealed, setRevealed] = useState(() => {
+    const idx = (() => {
+      for (let i = 0; i < initialMcqs.length; i++) {
+        if (userAnswers?.[i] === undefined || userAnswers?.[i] === null) {
+          return i;
+        }
+      }
+      return Math.max(0, initialMcqs.length - 1);
+    })();
+    return userAnswers?.[idx] !== undefined && userAnswers?.[idx] !== null;
+  });
+
+  const [done, setDone] = useState(() => {
+    return initialMcqs.length > 0 && 
+           (userAnswers || []).length >= initialMcqs.length && 
+           (userAnswers || []).every((a) => a !== null);
+  });
+
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
@@ -114,25 +173,67 @@ function MCQQuiz({
   const current = mcqs[currentIdx];
   const totalQuestions = mcqs.length;
 
+  const saveProgress = async (updatedScores: boolean[], updatedAnswers: (string | null)[]) => {
+    try {
+      const correct = updatedScores.filter(Boolean).length;
+      const total = updatedAnswers.filter((a) => a !== null).length;
+      const scoreStr = total > 0 ? `${correct}/${total}` : null;
+      await api.post(`/plan/${planId}/day/${dayNumber}/quiz-progress`, {
+        answers: updatedAnswers,
+        score: scoreStr
+      });
+    } catch (err) {
+      console.error("Failed to save quiz progress:", err);
+    }
+  };
+
   const handleOption = (letter: string) => {
     if (revealed) return;
     setSelected(letter);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selected) return;
     setRevealed(true);
     const isCorrect = selected === current.correct;
-    setScores((prev) => [...prev, isCorrect]);
+    
+    const newScores = [...scores, isCorrect];
+    setScores(newScores);
+
+    const newAnswers = [...answers];
+    newAnswers[currentIdx] = selected;
+    setAnswers(newAnswers);
+
+    await saveProgress(newScores, newAnswers);
   };
 
   const handleNext = () => {
     if (currentIdx + 1 >= totalQuestions) {
       setDone(true);
     } else {
-      setCurrentIdx((prev) => prev + 1);
-      setSelected(null);
-      setRevealed(false);
+      const nextIdx = currentIdx + 1;
+      setCurrentIdx(nextIdx);
+      setSelected(answers[nextIdx] || null);
+      setRevealed(answers[nextIdx] !== null);
+    }
+  };
+
+  const handleRetry = async () => {
+    const resetAnswers = mcqs.map(() => null);
+    setAnswers(resetAnswers);
+    setCurrentIdx(0);
+    setSelected(null);
+    setRevealed(false);
+    setScores([]);
+    setDone(false);
+
+    try {
+      await api.post(`/plan/${planId}/day/${dayNumber}/quiz-progress`, {
+        answers: resetAnswers,
+        score: `0/${mcqs.length}`
+      });
+    } catch (err) {
+      console.error("Failed to reset quiz progress:", err);
     }
   };
 
@@ -144,11 +245,19 @@ function MCQQuiz({
         `/plan/${planId}/day/${dayNumber}/mcqs`,
         { difficulty }
       );
-      setMcqs(res.mcqs);
-      setCurrentIdx(0);
+      
+      const newMcqs = res.mcqs;
+      setMcqs(newMcqs);
+      
+      const paddedAnswers = [...answers];
+      while (paddedAnswers.length < newMcqs.length) {
+        paddedAnswers.push(null);
+      }
+      setAnswers(paddedAnswers);
+      
+      setCurrentIdx(mcqs.length);
       setSelected(null);
       setRevealed(false);
-      setScores([]);
       setDone(false);
     } catch (err) {
       setGenError(err instanceof Error ? err.message : "Failed to generate MCQs.");
@@ -183,7 +292,7 @@ function MCQQuiz({
           {pct >= 60 ? "🎉 Well done!" : "📚 Keep studying!"}
         </h3>
         <p className="text-gray-400 text-sm mb-6">
-          You scored {correctCount} / {totalQuestions} on today's practice questions.
+          You scored {correctCount} / {totalQuestions} on today&apos;s practice questions.
         </p>
 
         {/* Difficulty selector */}
@@ -206,13 +315,7 @@ function MCQQuiz({
 
         <div className="flex gap-3 justify-center">
           <button
-            onClick={() => {
-              setCurrentIdx(0);
-              setSelected(null);
-              setRevealed(false);
-              setScores([]);
-              setDone(false);
-            }}
+            onClick={handleRetry}
             className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium transition-all"
           >
             Retry Same Quiz
@@ -588,7 +691,12 @@ function DayPlayerContent() {
                   </p>
                 </div>
               ) : (
-                <MCQQuiz mcqs={day.mcqs} planId={planId} dayNumber={dayNumber} />
+                <MCQQuiz 
+                  mcqs={day.mcqs} 
+                  planId={planId} 
+                  dayNumber={dayNumber} 
+                  userAnswers={day.user_answers} 
+                />
               )}
             </div>
           )}

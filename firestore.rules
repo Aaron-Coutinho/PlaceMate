@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // User Profile & Top-Level Data
+    match /users/{userId} {
+      // Users can only access their own user document
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Progress Tracking
+      match /progress/{document=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Test Results History
+      match /testResults/{testId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Study Plans
+      match /plans/{planId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+        
+        // Days Content (The Progressive Unlock System)
+        match /days_content/{dayId} {
+          // Users can only read the day content if it belongs to them AND is unlocked
+          allow read: if request.auth != null 
+                        && request.auth.uid == userId 
+                        && resource.data.is_unlocked == true;
+                        
+          // Only the user (or backend Admin SDK) can update day states (e.g. marking complete)
+          allow write: if request.auth != null && request.auth.uid == userId;
+        }
+      }
+    }
+    
+    // Global Question Bank
+    match /questions/{questionId} {
+      // Anyone authenticated can read the test questions
+      allow read: if request.auth != null;
+      // Questions can only be modified by admins (via Firebase Console or Admin SDK)
+      allow write: if false;
+    }
+  }
+}
