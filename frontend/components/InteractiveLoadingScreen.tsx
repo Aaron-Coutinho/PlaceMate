@@ -1,18 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import ParticleCanvas from "./ParticleCanvas";
 
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  radius: number;
-  color: string;
-  alpha: number;
-  decay: number;
-}
+const FACT_PRESETS = [
+  "Taking a 10-minute break for every 50 minutes of study is scientifically proven to boost long-term recall by 20%!",
+  "The first computer bug was a real moth found trapped in a relay by Grace Hopper in 1947.",
+  "Studies show that explaining a concept to an imaginary rubber duck helps you debug much faster!",
+  "Clean code is not just readable; it's a love letter to your future self.",
+  "The average software engineer spends more time reading code than writing it. Make it readable!",
+  "Ada Lovelace was the world's first computer programmer, writing an algorithm for Babbage's Analytical Engine in 1843.",
+  "90% of a project's complexity resides in the last 10% of the work. Keep pushing!",
+  "Learning to index your database properly is the single most cost-effective query optimization you can make.",
+  "A Git commit a day keeps the deployment bugs away. Keep your commits small and focused!",
+  "TCP handshake: 'Syn', 'Syn-Ack', 'Ack'. It's basically a three-way high five for servers.",
+  "Normalizing your database reduces redundancy. Denormalizing it speeds up reads. Balance is key!",
+  "The best error message is the one that never shows up. Validate your inputs early!"
+];
 
 export default function InteractiveLoadingScreen({
   days,
@@ -23,9 +28,9 @@ export default function InteractiveLoadingScreen({
   topicsCount: number;
   subjectsCount: number;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [fact, setFact] = useState<string>("Initializing placement preparation system...");
-  const mouseRef = useRef({ x: 0, y: 0, active: false });
+  const [fact, setFact] = useState<string>(() => {
+    return FACT_PRESETS[Math.floor(Math.random() * FACT_PRESETS.length)];
+  });
 
   // Fetch fact from Groq endpoint
   const fetchFact = async () => {
@@ -40,148 +45,19 @@ export default function InteractiveLoadingScreen({
   };
 
   useEffect(() => {
-    fetchFact();
+    // We already initialized with a preset fact, but we fetch more to cycle
     const interval = setInterval(fetchFact, 9000);
     return () => clearInterval(interval);
   }, []);
 
-  // Particle simulation logic
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let animationId: number;
-    let particles: Particle[] = [];
-    const colors = ["#6366f1", "#a855f7", "#ec4899", "#3b82f6", "#14b8a6"];
-
-    const resizeCanvas = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
-
-    const createParticle = (x: number, y: number): Particle => {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = Math.random() * 3 + 1;
-      return {
-        x,
-        y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        radius: Math.random() * 4 + 2,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        alpha: 1,
-        decay: Math.random() * 0.015 + 0.01,
-      };
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      mouseRef.current.x = e.clientX;
-      mouseRef.current.y = e.clientY;
-      mouseRef.current.active = true;
-
-      // Spawn a couple of particles on mouse move
-      for (let i = 0; i < 2; i++) {
-        particles.push(createParticle(e.clientX, e.clientY));
-      }
-    };
-
-    const handleMouseLeave = () => {
-      mouseRef.current.active = false;
-    };
-
-    const handleClick = (e: MouseEvent) => {
-      // Explode a bunch of particles on click!
-      for (let i = 0; i < 20; i++) {
-        particles.push(createParticle(e.clientX, e.clientY));
-      }
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseleave", handleMouseLeave);
-    window.addEventListener("click", handleClick);
-
-    const update = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Render ambient cursor glow
-      if (mouseRef.current.active) {
-        const gradient = ctx.createRadialGradient(
-          mouseRef.current.x,
-          mouseRef.current.y,
-          0,
-          mouseRef.current.x,
-          mouseRef.current.y,
-          100
-        );
-        gradient.addColorStop(0, "rgba(99, 102, 241, 0.15)");
-        gradient.addColorStop(1, "rgba(99, 102, 241, 0)");
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-
-      // Update and draw particles
-      particles = particles.filter((p) => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.alpha -= p.decay;
-
-        // Apply a little friction
-        p.vx *= 0.98;
-        p.vy *= 0.98;
-
-        if (p.alpha <= 0) return false;
-
-        ctx.save();
-        ctx.globalAlpha = p.alpha;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = p.color;
-        ctx.fill();
-        ctx.restore();
-
-        return true;
-      });
-
-      // Spawn ambient particles slowly
-      if (Math.random() < 0.05) {
-        particles.push(
-          createParticle(
-            Math.random() * canvas.width,
-            Math.random() * canvas.height
-          )
-        );
-      }
-
-      animationId = requestAnimationFrame(update);
-    };
-    update();
-
-    return () => {
-      window.removeEventListener("resize", resizeCanvas);
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseleave", handleMouseLeave);
-      window.removeEventListener("click", handleClick);
-      cancelAnimationFrame(animationId);
-    };
-  }, []);
-
   return (
     <main className="min-h-screen bg-gray-950 flex items-center justify-center relative overflow-hidden select-none">
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full block cursor-pointer"
-      />
+      <ParticleCanvas className="absolute inset-0 w-full h-full block cursor-pointer" />
 
       <div className="absolute top-[-15%] left-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-600/10 blur-[100px] pointer-events-none animate-pulse" />
       <div className="absolute bottom-[-15%] right-[-10%] w-[400px] h-[400px] rounded-full bg-purple-600/10 blur-[80px] pointer-events-none animate-pulse" />
 
-      <div className="relative z-10 text-center max-w-lg mx-6 bg-gray-900/60 backdrop-blur-md border border-gray-800/60 p-8 rounded-3xl shadow-2xl">
+      <div className="relative z-10 text-center max-w-lg mx-6 bg-gray-900/60 backdrop-blur-md border border-gray-800/60 p-8 rounded-3xl shadow-2xl animate-in fade-in duration-500">
         <div className="w-20 h-20 mx-auto mb-6 relative">
           <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full" />
           <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -206,10 +82,6 @@ export default function InteractiveLoadingScreen({
           </p>
         </div>
 
-        <p className="text-gray-500 text-xs mb-4">
-          🖱️ Click or move your mouse around to play with particles!
-        </p>
-
         <div className="flex flex-wrap justify-center gap-2">
           {["Analyzing topics...", "Building schedule...", "Creating notes..."].map(
             (step, i) => (
@@ -227,3 +99,4 @@ export default function InteractiveLoadingScreen({
     </main>
   );
 }
+

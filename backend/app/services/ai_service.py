@@ -101,11 +101,19 @@ Return a valid JSON array of exactly {batch_count} day objects with this structu
 
 Rules:
 1. Day numbers must range sequentially from {batch_start} to {batch_end}.
-2. Distribute topics across the plan based on the total duration:
-   - **Extreme Short Case (1-3 days)**: If total study time is very limited (e.g. 1 day with 1 hour) and the user has selected many subjects/topics, DO NOT try to cram everything. Choose ONLY the most critical, high-yield placement topics (e.g. important Arrays/Linked Lists for DSA, basic SQL for DBMS, process states for OS) that a student can realistically grasp in the given time.
-   - **Short/Medium Case (4-30 days)**: Distribute all selected topics evenly, moving from basic to advanced.
-   - **Long Case (31-390 days)**: Since there are more days than topics, spread them out. Dedicate specific days/weeks to deep dives, solving complex practice problems, revision of previous days, advanced topics, and mock interview questions. Ensure the schedule spans the entire {total_days} days.
-3. Each day covers 1-2 closely related topics.
+2. Subject and Topic Distribution Guidelines:
+   - **Mandatory Subject Coverage**: The plan MUST cover all selected subjects ({', '.join(weak_subjects)}) and distribute the selected topics ({', '.join(topics)}) across the N days. You must NOT completely ignore or omit any selected subject or its primary topics.
+   - **Daily Topic Capacity based on Hours per Day**:
+     - If study time is 1-2 hours/day: cover 1-2 topics per day.
+     - If study time is 3-5 hours/day: cover 2-3 topics per day.
+     - If study time is 6-8 hours/day: cover 3-4 topics per day.
+   - **Extreme Short Case (1-3 days)**: When the timeline is extremely short but the user has selected multiple subjects and topics:
+     - Group topics/subjects onto the same day (e.g., Day 1: "DSA & OS" covering "Arrays, Linked Lists, Processes"; Day 2: "DBMS & CN" covering "SQL, OSI Model").
+     - Ensure that *all* selected subjects have at least one day or part of a day dedicated to them.
+     - Cover the most critical, high-yield placement topics for each selected subject (e.g. important Arrays/Linked Lists for DSA, basic SQL/transactions for DBMS, process states/threads for OS, OSI/TCP for CN, basic quantitative topics for Aptitude). Do NOT omit any of the selected subjects.
+   - **Medium Case (4-30 days)**: Distribute all selected topics logically, moving from basic to advanced. Ensure topics are spread evenly.
+   - **Long Case (31-390 days)**: Since there are more days than topics, spread them out. Dedicate specific days/weeks to deep dives, solving complex practice problems, revision, advanced topics, and mock interviews. Ensure the schedule spans the entire {total_days} days.
+3. Day Subject Naming: If a day covers topics from multiple subjects (e.g. DSA and OS), set the "subject" field to a combined string (e.g., "DSA & OS").
 4. youtube_search_query: specific and concise for finding tutorial videos.
 5. learning_objectives: 2-4 actionable learning targets for the day.
 6. Return ONLY the JSON array. Do not wrap in ```json or any other text, just raw valid JSON."""

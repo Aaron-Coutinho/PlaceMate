@@ -13,10 +13,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { api, ApiError } from "@/lib/api";
 import { Markdown } from "@/components/Markdown";
+import ParticleCanvas from "@/components/ParticleCanvas";
 
 type Tab = "notes" | "videos" | "mcqs";
 
@@ -114,14 +115,12 @@ function MCQQuiz({
     return arr;
   });
 
-  const [scores, setScores] = useState<boolean[]>(() => {
-    const scr: boolean[] = [];
+  const [scores, setScores] = useState<(boolean | null)[]>(() => {
+    const scr = Array(initialMcqs.length).fill(null);
     for (let i = 0; i < initialMcqs.length; i++) {
       const ans = userAnswers?.[i];
-      if (ans) {
-        scr.push(ans === initialMcqs[i].correct);
-      } else {
-        break;
+      if (ans !== undefined && ans !== null) {
+        scr[i] = (ans === initialMcqs[i].correct);
       }
     }
     return scr;
@@ -173,9 +172,9 @@ function MCQQuiz({
   const current = mcqs[currentIdx];
   const totalQuestions = mcqs.length;
 
-  const saveProgress = async (updatedScores: boolean[], updatedAnswers: (string | null)[]) => {
+  const saveProgress = async (updatedScores: (boolean | null)[], updatedAnswers: (string | null)[]) => {
     try {
-      const correct = updatedScores.filter(Boolean).length;
+      const correct = updatedScores.filter((s) => s === true).length;
       const total = updatedAnswers.filter((a) => a !== null).length;
       const scoreStr = total > 0 ? `${correct}/${total}` : null;
       await api.post(`/plan/${planId}/day/${dayNumber}/quiz-progress`, {
@@ -192,12 +191,21 @@ function MCQQuiz({
     setSelected(letter);
   };
 
+  const goToQuestion = (idx: number) => {
+    if (idx >= 0 && idx < totalQuestions) {
+      setCurrentIdx(idx);
+      setSelected(answers[idx] || null);
+      setRevealed(answers[idx] !== null);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!selected) return;
     setRevealed(true);
     const isCorrect = selected === current.correct;
     
-    const newScores = [...scores, isCorrect];
+    const newScores = [...scores];
+    newScores[currentIdx] = isCorrect;
     setScores(newScores);
 
     const newAnswers = [...answers];
@@ -224,7 +232,7 @@ function MCQQuiz({
     setCurrentIdx(0);
     setSelected(null);
     setRevealed(false);
-    setScores([]);
+    setScores(mcqs.map(() => null));
     setDone(false);
 
     try {
@@ -254,6 +262,12 @@ function MCQQuiz({
         paddedAnswers.push(null);
       }
       setAnswers(paddedAnswers);
+
+      const newScores = [...scores];
+      while (newScores.length < newMcqs.length) {
+        newScores.push(null);
+      }
+      setScores(newScores);
       
       setCurrentIdx(mcqs.length);
       setSelected(null);
@@ -266,7 +280,7 @@ function MCQQuiz({
     }
   };
 
-  const correctCount = scores.filter(Boolean).length;
+  const correctCount = scores.filter((s) => s === true).length;
   const getLetter = (option: string) => option.split(".")[0].trim();
 
   const difficultyConfig: Record<Difficulty, { label: string; color: string; active: string }> = {
@@ -313,7 +327,13 @@ function MCQQuiz({
           </div>
         </div>
 
-        <div className="flex gap-3 justify-center">
+        <div className="flex gap-3 justify-center flex-wrap">
+          <button
+            onClick={() => setDone(false)}
+            className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl text-sm font-medium transition-all border border-gray-700"
+          >
+            Review Answers
+          </button>
           <button
             onClick={handleRetry}
             className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium transition-all"
@@ -346,17 +366,19 @@ function MCQQuiz({
         </span>
         <div className="flex gap-1">
           {mcqs.map((_, i) => (
-            <div
+            <button
               key={i}
-              className={`w-2.5 h-2.5 rounded-full ${
-                i < scores.length
+              onClick={() => goToQuestion(i)}
+              className={`w-2.5 h-2.5 rounded-full transition-all hover:scale-125 focus:outline-none ${
+                scores[i] !== null
                   ? scores[i]
-                    ? "bg-emerald-500"
-                    : "bg-red-500"
+                    ? "bg-emerald-500 hover:bg-emerald-400"
+                    : "bg-red-500 hover:bg-red-400"
                   : i === currentIdx
-                  ? "bg-indigo-500"
-                  : "bg-gray-700"
+                  ? "bg-indigo-500 hover:bg-indigo-400"
+                  : "bg-gray-700 hover:bg-gray-600"
               }`}
+              title={`Go to Question ${i + 1}`}
             />
           ))}
         </div>
@@ -409,23 +431,37 @@ function MCQQuiz({
         </div>
       )}
 
-      {/* Action button */}
-      {!revealed ? (
-        <button
-          onClick={handleSubmit}
-          disabled={!selected}
-          className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all"
-        >
-          Submit Answer
-        </button>
-      ) : (
-        <button
-          onClick={handleNext}
-          className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold rounded-xl transition-all"
-        >
-          {currentIdx + 1 >= totalQuestions ? "See Results →" : "Next Question →"}
-        </button>
-      )}
+      {/* Action buttons */}
+      <div className="flex gap-3">
+        {currentIdx > 0 && (
+          <button
+            onClick={() => goToQuestion(currentIdx - 1)}
+            className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold rounded-xl transition-all border border-gray-700"
+          >
+            ← Previous
+          </button>
+        )}
+        {!revealed ? (
+          <button
+            onClick={handleSubmit}
+            disabled={!selected}
+            className={`py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all ${
+              currentIdx > 0 ? "flex-[2]" : "w-full"
+            }`}
+          >
+            Submit Answer
+          </button>
+        ) : (
+          <button
+            onClick={handleNext}
+            className={`py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold rounded-xl transition-all ${
+              currentIdx > 0 ? "flex-[2]" : "w-full"
+            }`}
+          >
+            {currentIdx + 1 >= totalQuestions ? "See Results →" : "Next Question →"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -443,8 +479,11 @@ export default function DayPlayerPage() {
 function DayPlayerContent() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const planId = params.planId as string;
   const dayNumber = parseInt(params.dayNumber as string);
+  const rawTopics = searchParams.get("topics") || "";
+  const rawSubject = searchParams.get("subject") || "";
 
   const [day, setDay] = useState<DayData | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("notes");
@@ -454,6 +493,27 @@ function DayPlayerContent() {
   const [rateLimitRetryAfter, setRateLimitRetryAfter] = useState<number | null>(null);
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(new Set(["notes"]));
   const fetchedRef = useRef(false); // prevent double-fetch in React StrictMode
+
+  const [loadingFact, setLoadingFact] = useState<string>("");
+
+  useEffect(() => {
+    const lines = [
+      (topics: string) => `Cooking some notes for you on: ${topics} 🍳`,
+      (topics: string) => `Whipping up a premium recipe for: ${topics} 🍰`,
+      (topics: string) => `Brewing fresh knowledge about: ${topics} ☕`,
+      (topics: string) => `Optimizing time complexity for: ${topics} 🚀`,
+      (topics: string) => `Teaching the rubber duck about: ${topics} 🦆`,
+      (topics: string) => `Unfolding the cosmic secrets of: ${topics} 🌌`,
+      (topics: string) => `Initializing synapses for: ${topics} 🧠`,
+      (topics: string) => `Loading intellectual horsepower for: ${topics} 🏎️`,
+    ];
+    if (rawTopics) {
+      const randomLineGen = lines[Math.floor(Math.random() * lines.length)];
+      setLoadingFact(randomLineGen(rawTopics));
+    } else {
+      setLoadingFact("Generating AI study notes, videos & practice questions...");
+    }
+  }, [rawTopics]);
 
   const fetchDay = useCallback(async () => {
     // Reset UI state for fresh fetch (NOT fetchedRef — that belongs to the effect guard)
@@ -508,19 +568,43 @@ function DayPlayerContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950">
-        <div className="flex flex-col items-center gap-3 text-center px-4">
-          <div className="w-14 h-14 relative">
+      <main className="min-h-screen bg-gray-950 flex items-center justify-center relative overflow-hidden select-none">
+        <ParticleCanvas className="absolute inset-0 w-full h-full block cursor-pointer" />
+
+        <div className="absolute top-[-15%] left-[-10%] w-[500px] h-[500px] rounded-full bg-indigo-600/10 blur-[100px] pointer-events-none animate-pulse" />
+        <div className="absolute bottom-[-15%] right-[-10%] w-[400px] h-[400px] rounded-full bg-purple-600/10 blur-[80px] pointer-events-none animate-pulse" />
+
+        <div className="relative z-10 text-center max-w-lg mx-6 bg-gray-900/60 backdrop-blur-md border border-gray-800/60 p-8 rounded-3xl shadow-2xl animate-in fade-in duration-500">
+          <div className="w-20 h-20 mx-auto mb-6 relative">
             <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full" />
             <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            <div className="absolute inset-2 border-4 border-purple-500/20 rounded-full" />
+            <div className="absolute inset-2 border-4 border-purple-500 border-b-transparent rounded-full animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
           </div>
-          <p className="text-gray-200 font-medium mt-2">Loading Day {dayNumber}...</p>
-          <p className="text-gray-500 text-xs max-w-xs">
+          
+          <h2 className="text-2xl font-bold text-white mb-1">
+            Loading Day {dayNumber}
+          </h2>
+          {rawSubject && (
+            <p className="text-indigo-400 text-sm font-medium mb-4">
+              {rawSubject}
+            </p>
+          )}
+          
+          {/* Fun line box */}
+          <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-2xl p-4 mb-6 min-h-[90px] flex items-center justify-center">
+            <p className="text-indigo-200 text-sm leading-relaxed italic">
+              "{loadingFact}"
+            </p>
+          </div>
+
+          <p className="text-gray-500 text-xs max-w-xs mx-auto">
             Generating AI study notes, videos &amp; practice questions.
+            <br />
             This may take up to 30s on your first visit.
           </p>
         </div>
-      </div>
+      </main>
     );
   }
 

@@ -50,11 +50,12 @@ function PlanOverviewContent() {
   const [error, setError] = useState<string | null>(null);
   const fetchedRef = useRef(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [hasDismissedCompletion, setHasDismissedCompletion] = useState(false);
 
   useEffect(() => {
     if (plan && plan.days.length > 0) {
       const isAllCompleted = plan.days.every(d => d.is_completed);
-      if (isAllCompleted && !showCompletionModal) {
+      if (isAllCompleted && !showCompletionModal && !hasDismissedCompletion) {
         setShowCompletionModal(true);
         // Fire confetti!
         const duration = 3000;
@@ -83,7 +84,7 @@ function PlanOverviewContent() {
         frame();
       }
     }
-  }, [plan, showCompletionModal]);
+  }, [plan, showCompletionModal, hasDismissedCompletion]);
 
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -196,7 +197,11 @@ function PlanOverviewContent() {
                 id={`day-card-${day.day_number}`}
                 onClick={() => {
                   if (!isLocked) {
-                    router.push(`/plan/${planId}/day/${day.day_number}`);
+                    const topicsParam = encodeURIComponent(day.topics.join(" • "));
+                    const subjectParam = encodeURIComponent(day.subject);
+                    router.push(
+                      `/plan/${planId}/day/${day.day_number}?subject=${subjectParam}&topics=${topicsParam}`
+                    );
                   }
                 }}
                 disabled={isLocked}
@@ -316,6 +321,15 @@ function PlanOverviewContent() {
                 className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl transition-colors border border-gray-700"
               >
                 Back to Dashboard
+              </button>
+              <button
+                onClick={() => {
+                  setShowCompletionModal(false);
+                  setHasDismissedCompletion(true);
+                }}
+                className="w-full py-3 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-300 font-bold rounded-xl transition-all border border-indigo-500/30"
+              >
+                Review Study Plan &amp; Notes
               </button>
             </div>
           </div>
