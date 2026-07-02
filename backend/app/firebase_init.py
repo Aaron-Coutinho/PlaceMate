@@ -3,8 +3,12 @@ PlaceMate Backend – Firebase Initialization
 
 Initializes Firebase Admin SDK for server-side Auth verification and Firestore access.
 This module should be imported once at app startup.
+
+In production (Railway / Cloud Run), FIREBASE_SERVICE_ACCOUNT should be set to the
+entire service account JSON content as a string. Locally it can remain a file path.
 """
 
+import json
 import firebase_admin
 from firebase_admin import credentials, firestore, auth as firebase_auth
 from app.config import settings
@@ -13,14 +17,27 @@ _initialized = False
 
 
 def init_firebase() -> None:
-    """Initialize Firebase Admin SDK with service account credentials."""
+    """Initialize Firebase Admin SDK with service account credentials.
+    
+    Accepts either:
+    - A file path (local dev): FIREBASE_SERVICE_ACCOUNT=./firebase-service-account.json
+    - An inline JSON string (production): FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
+    """
     global _initialized
     if _initialized:
         return
 
-    cred = credentials.Certificate(settings.FIREBASE_SERVICE_ACCOUNT)
+    sa = settings.FIREBASE_SERVICE_ACCOUNT
+    if sa.strip().startswith("{"):
+        # Inline JSON string — used in production (Railway, Cloud Run, etc.)
+        cred = credentials.Certificate(json.loads(sa))
+    else:
+        # File path — used locally
+        cred = credentials.Certificate(sa)
+
     firebase_admin.initialize_app(cred)
     _initialized = True
+
 
 
 def get_firestore_client():
