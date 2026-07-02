@@ -560,3 +560,68 @@ async def save_quiz_progress(
         
     day_ref.update(update_data)
     return {"message": "Quiz progress saved successfully"}
+
+
+# ---------------------------------------------------------------------------
+# On-demand extra video fetching
+# ---------------------------------------------------------------------------
+
+@router.post("/{plan_id}/day/{day_number}/videos")
+async def fetch_more_videos(
+    plan_id: str,
+    day_number: int,
+    uid: str = Depends(get_current_uid),
+):
+    """
+    Fetch 3 more relevant YouTube videos for the given day and append them
+    (deduplicated by video_id) to the existing videos in Firestore.
+    """
+    db = get_db()
+    day_ref = (
+        db.collection("users")
+        .document(uid)
+        .collection("plans")
+        .document(plan_id)
+        .collection("days_content")
+        .document(f"day_{day_number}")
+    )
+    day_doc = day_ref.get()
+
+    if not day_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Day {day_number} not found",
+        )
+
+    day_data = day_doc.to_dict()
+    youtube_query = day_data.get("youtube_query", "")
+    if not youtube_query:
+        # Fallback: build query from subject + topics
+        subject = day_data.get("subject", "")
+        topics = day_data.get("topics", [])
+        youtube_query = f"{subject} {' '.join(topics)} placement interview tutorial"
+
+    existing_videos: list[dict] = day_data.get("videos", []) or []
+    existing_ids = {v.get("video_id") for v in existing_videos}
+
+    try:
+        loop = asyncio.get_running_loop()
+        new_videos = await loop.run_in_executor(None, fetch_videos_for_topic, youtube_query)
+
+        # Deduplicate by video_id
+        added = [v for v in new_videos if v.get("video_id") not in existing_ids]
+        updated_videos = existing_videos + added
+
+        day_ref.update({"videos": updated_videos})
+        logger.info(
+            f"[YouTube] Added {len(added)} new video(s) for plan={plan_id}, day={day_number}"
+        )
+        return {"videos": updated_videos, "added": len(added)}
+
+    except Exception as e:
+        logger.error(f"[YouTube] Extra video fetch failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch more videos. Please try again.",
+        )
+

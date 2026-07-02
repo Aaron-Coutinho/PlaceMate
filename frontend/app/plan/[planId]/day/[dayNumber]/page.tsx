@@ -493,6 +493,8 @@ function DayPlayerContent() {
   const [rateLimitRetryAfter, setRateLimitRetryAfter] = useState<number | null>(null);
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(new Set(["notes"]));
   const fetchedRef = useRef(false); // prevent double-fetch in React StrictMode
+  const [loadingMoreVideos, setLoadingMoreVideos] = useState(false);
+  const [moreVideosError, setMoreVideosError] = useState<string | null>(null);
 
   const [loadingFact, setLoadingFact] = useState<string>("");
 
@@ -563,6 +565,25 @@ function DayPlayerContent() {
     } catch {
       setError("Failed to complete day. Please try again.");
       setCompleting(false);
+    }
+  };
+
+  const handleLoadMoreVideos = async () => {
+    if (!day) return;
+    setLoadingMoreVideos(true);
+    setMoreVideosError(null);
+    try {
+      const res = await api.post<{ videos: Video[]; added: number }>(
+        `/plan/${planId}/day/${dayNumber}/videos`
+      );
+      setDay((prev) => prev ? { ...prev, videos: res.videos } : prev);
+      if (res.added === 0) {
+        setMoreVideosError("No new videos found — try again later!");
+      }
+    } catch (err) {
+      setMoreVideosError(err instanceof Error ? err.message : "Failed to load more videos.");
+    } finally {
+      setLoadingMoreVideos(false);
     }
   };
 
@@ -737,11 +758,22 @@ function DayPlayerContent() {
                       {day.topics.join(", ")} {day.subject} placement interview
                     </span>
                   </p>
+                  <button
+                    onClick={handleLoadMoreVideos}
+                    disabled={loadingMoreVideos}
+                    className="mt-5 px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all flex items-center gap-2 mx-auto"
+                  >
+                    {loadingMoreVideos ? (
+                      <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Fetching...</>
+                    ) : (
+                      <>🎬 Load Videos</>
+                    )}
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-6">
                   {day.videos.map((video, i) => (
-                    <div key={i} className="bg-gray-800/30 rounded-xl overflow-hidden border border-gray-800/50">
+                    <div key={video.video_id ?? i} className="bg-gray-800/30 rounded-xl overflow-hidden border border-gray-800/50">
                       <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
                         <iframe
                           className="absolute inset-0 w-full h-full"
@@ -758,6 +790,24 @@ function DayPlayerContent() {
                       </div>
                     </div>
                   ))}
+
+                  {/* Load More Videos */}
+                  <div className="pt-2 text-center">
+                    <button
+                      onClick={handleLoadMoreVideos}
+                      disabled={loadingMoreVideos}
+                      className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-sm font-medium rounded-xl transition-all border border-gray-700 flex items-center gap-2 mx-auto"
+                    >
+                      {loadingMoreVideos ? (
+                        <><span className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />Fetching more videos...</>
+                      ) : (
+                        <>🎬 Load More Relevant Videos</>
+                      )}
+                    </button>
+                    {moreVideosError && (
+                      <p className="text-amber-400 text-xs mt-2">{moreVideosError}</p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

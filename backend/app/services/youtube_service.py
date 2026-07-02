@@ -8,6 +8,7 @@ API calls and to stay within the daily quota.
 """
 
 import logging
+import re
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -19,6 +20,24 @@ logger = logging.getLogger(__name__)
 
 # Number of videos to fetch per day topic
 MAX_RESULTS = 3
+
+
+def _clean_title(title: str) -> str:
+    """
+    Clean up common symbol clutter seen in YouTube video titles:
+    - Remove hashtag phrases like #DSA, #Placement, #Shorts
+    - Remove $ and other noise characters
+    - Collapse multiple whitespace / trailing pipes into a clean string
+    """
+    # Remove hashtag words (e.g. #DSA, #placement2024)
+    title = re.sub(r'#\w+', '', title)
+    # Remove dollar signs
+    title = title.replace('$', '')
+    # Remove leading/trailing pipes and slashes
+    title = re.sub(r'^[|/\\\s]+|[|/\\\s]+$', '', title)
+    # Collapse multiple spaces
+    title = re.sub(r'\s{2,}', ' ', title)
+    return title.strip()
 
 
 def fetch_videos_for_topic(query: str) -> list[dict[str, Any]]:
@@ -53,6 +72,7 @@ def fetch_videos_for_topic(query: str) -> list[dict[str, Any]]:
                 relevanceLanguage="en",
                 videoEmbeddable="true",
                 safeSearch="strict",
+                order="viewCount",
             )
             .execute()
         )
@@ -66,7 +86,7 @@ def fetch_videos_for_topic(query: str) -> list[dict[str, Any]]:
 
             videos.append(
                 {
-                    "title": snippet.get("title", ""),
+                    "title": _clean_title(snippet.get("title", "")),
                     "video_id": video_id,
                     "thumbnail": snippet.get("thumbnails", {})
                     .get("medium", {})
