@@ -72,7 +72,6 @@ def fetch_videos_for_topic(query: str, max_results: int = MAX_RESULTS) -> list[d
                 relevanceLanguage="en",
                 videoEmbeddable="true",
                 safeSearch="strict",
-                order="viewCount",
             )
             .execute()
         )
@@ -106,3 +105,107 @@ def fetch_videos_for_topic(query: str, max_results: int = MAX_RESULTS) -> list[d
     except Exception as e:
         logger.error(f"Unexpected error fetching YouTube videos: {e}")
         return []
+
+
+# ---------------------------------------------------------------------------
+# Smart Subject/Topic mappings for curated YouTube queries
+# ---------------------------------------------------------------------------
+
+TOPIC_EXPANSIONS = {
+    "DP": "Dynamic Programming",
+    "ER Models": "Entity Relationship ER Model",
+}
+
+TOPIC_SUBJECT_MAP = {
+    # DSA
+    "Arrays": "DSA", "Linked Lists": "DSA", "Trees": "DSA", "Graphs": "DSA", "DP": "DSA", "Sorting": "DSA", "Hashing": "DSA",
+    # OS
+    "Processes": "OS", "Threads": "OS", "Memory Management": "OS", "Deadlocks": "OS", "Scheduling": "OS",
+    # DBMS
+    "SQL": "DBMS", "Normalization": "DBMS", "Transactions": "DBMS", "Indexing": "DBMS", "ER Models": "DBMS",
+    # CN
+    "OSI Model": "CN", "TCP/IP": "CN", "DNS": "CN", "HTTP": "CN", "Routing": "CN", "Subnetting": "CN",
+    # Aptitude
+    "Number Systems": "Aptitude", "Probability": "Aptitude", "Time & Work": "Aptitude", "Permutations": "Aptitude"
+}
+
+SUBJECT_NAMES = {
+    "DSA": "Data Structures Algorithms",
+    "OS": "Operating System",
+    "DBMS": "DBMS Database",
+    "CN": "Computer Network",
+    "Aptitude": "Quantitative Aptitude"
+}
+
+
+def _build_topic_query(subject: str, topic: str) -> str:
+    """Build a highly relevant placement tutorial query for a specific topic."""
+    # Expand abbreviations
+    topic_expanded = TOPIC_EXPANSIONS.get(topic, topic)
+    
+    # Determine subject parent
+    parent_sub = TOPIC_SUBJECT_MAP.get(topic)
+    if not parent_sub:
+        # Fallback: check if any known subject abbreviation is inside the day's subject
+        for sub_key in SUBJECT_NAMES.keys():
+            if sub_key in subject:
+                parent_sub = sub_key
+                break
+                
+    if parent_sub and parent_sub in SUBJECT_NAMES:
+        sub_name = SUBJECT_NAMES[parent_sub]
+    else:
+        # Fallback: clean the day's subject of special characters
+        sub_name = subject.replace("&", "and").replace("/", " ")
+        
+    return f"{sub_name} {topic_expanded} tutorial placement preparation"
+
+
+def fetch_videos_for_day(subject: str, topics: list[str], max_results: int = 3) -> list[dict[str, Any]]:
+    """
+    Fetch curated videos for a specific day by performing topic-level searches.
+    Interleaves search results for balanced topic coverage.
+    """
+    if not topics:
+        # Fallback to subject-only search query
+        query = f"{subject} placement preparation tutorial"
+        return fetch_videos_for_topic(query, max_results)
+
+    # 1. Generate specific queries for each topic
+    queries = [_build_topic_query(subject, topic) for topic in topics]
+    
+    # 2. Fetch videos in parallel or sequence. Since it's run in an executor,
+    # we can fetch them sequentially. We only fetch for up to 3 topics to conserve quota.
+    results_by_topic = []
+    
+    # Ask for enough videos per topic to interleave and meet max_results
+    # If 1 topic, we need max_results
+    # If 2 topics, we need at least ceil(max_results/2) per topic
+    items_per_topic = max(3, max_results // len(queries) + 1)
+    
+    for q in queries[:3]:  # cap at top 3 topics
+        topic_videos = fetch_videos_for_topic(q, items_per_topic)
+        if topic_videos:
+            results_by_topic.append(topic_videos)
+
+    if not results_by_topic:
+        # Fallback: try subject-wide query if topic searches returned nothing
+        fallback_query = f"{subject} {' '.join(topics)} tutorial"
+        return fetch_videos_for_topic(fallback_query, max_results)
+
+    # 3. Interleave results
+    merged_videos = []
+    seen_ids = set()
+    
+    # Simple round-robin merge
+    max_len = max(len(lst) for lst in results_by_topic)
+    for i in range(max_len):
+        for lst in results_by_topic:
+            if i < len(lst):
+                video = lst[i]
+                if video["video_id"] not in seen_ids:
+                    seen_ids.add(video["video_id"])
+                    merged_videos.append(video)
+
+    return merged_videos[:max_results]
+

@@ -16,7 +16,7 @@ from app.middleware.auth import get_current_uid
 from app.firebase_init import get_db
 from app.models.schemas import PlanConfig, PlanResponse, PlanMetadata
 from app.services.ai_service import generate_study_plan, generate_detailed_notes, RateLimitError
-from app.services.youtube_service import fetch_videos_for_topic
+from app.services.youtube_service import fetch_videos_for_topic, fetch_videos_for_day
 from app.services.mcq_service import generate_mcqs_for_day
 
 logger = logging.getLogger(__name__)
@@ -366,10 +366,11 @@ async def get_day_detail(
     async def _get_videos():
         if not needs_videos:
             return day_data.get("videos", [])
-        logger.info(f"[YouTube] Fetching videos: plan={plan_id}, day={day_number}")
-        # fetch_videos_for_topic is sync — run in thread pool to avoid blocking event loop
+        logger.info(f"[YouTube] Fetching smart curation: plan={plan_id}, day={day_number}")
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, fetch_videos_for_topic, youtube_query)
+        return await loop.run_in_executor(
+            None, fetch_videos_for_day, subject, topics, 3
+        )
 
     # ── Fire all three in parallel ──────────────────────────────────
     results = await asyncio.gather(
@@ -594,13 +595,8 @@ async def fetch_more_videos(
         )
 
     day_data = day_doc.to_dict()
-    youtube_query = day_data.get("youtube_query", "")
-    if not youtube_query:
-        # Fallback: build query from subject + topics
-        subject = day_data.get("subject", "")
-        topics = day_data.get("topics", [])
-        youtube_query = f"{subject} {' '.join(topics)} placement interview tutorial"
-
+    subject = day_data.get("subject", "")
+    topics = day_data.get("topics", [])
     existing_videos: list[dict] = day_data.get("videos", []) or []
     existing_ids = {v.get("video_id") for v in existing_videos}
 
@@ -608,7 +604,7 @@ async def fetch_more_videos(
         loop = asyncio.get_running_loop()
         requested_count = min(len(existing_videos) + 3, 50)
         new_videos = await loop.run_in_executor(
-            None, fetch_videos_for_topic, youtube_query, requested_count
+            None, fetch_videos_for_day, subject, topics, requested_count
         )
 
         # Deduplicate by video_id
