@@ -606,7 +606,10 @@ async def fetch_more_videos(
 
     try:
         loop = asyncio.get_running_loop()
-        new_videos = await loop.run_in_executor(None, fetch_videos_for_topic, youtube_query)
+        requested_count = min(len(existing_videos) + 3, 50)
+        new_videos = await loop.run_in_executor(
+            None, fetch_videos_for_topic, youtube_query, requested_count
+        )
 
         # Deduplicate by video_id
         added = [v for v in new_videos if v.get("video_id") not in existing_ids]

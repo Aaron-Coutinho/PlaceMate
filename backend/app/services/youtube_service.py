@@ -40,11 +40,11 @@ def _clean_title(title: str) -> str:
     return title.strip()
 
 
-def fetch_videos_for_topic(query: str) -> list[dict[str, Any]]:
+def fetch_videos_for_topic(query: str, max_results: int = MAX_RESULTS) -> list[dict[str, Any]]:
     """
     Search YouTube for placement-prep videos matching the given query.
 
-    Returns up to MAX_RESULTS video dicts, each with:
+    Returns up to max_results video dicts, each with:
       - title, video_id, thumbnail, channel
 
     Falls back to an empty list on any API error so the rest of the
@@ -68,7 +68,7 @@ def fetch_videos_for_topic(query: str) -> list[dict[str, Any]]:
                 part="snippet",
                 q=query,
                 type="video",
-                maxResults=MAX_RESULTS,
+                maxResults=max_results,
                 relevanceLanguage="en",
                 videoEmbeddable="true",
                 safeSearch="strict",
