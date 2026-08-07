@@ -33,9 +33,20 @@ class Settings:
     # Server
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
-    CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(
-        ","
-    )
+    
+    @property
+    def CORS_ORIGINS(self) -> list[str]:
+        raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,https://place-mate-rho.vercel.app")
+        origins = []
+        for item in raw.split(","):
+            cleaned = item.strip().strip('"').strip("'").rstrip("/")
+            if cleaned:
+                origins.append(cleaned)
+        # Always include the active Vercel domain as fallback
+        if "https://place-mate-rho.vercel.app" not in origins and "*" not in origins:
+            origins.append("https://place-mate-rho.vercel.app")
+        return origins
+
 
 
 settings = Settings()
