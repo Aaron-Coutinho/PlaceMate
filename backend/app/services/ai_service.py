@@ -1,13 +1,12 @@
 """
-PlaceMate Backend – AI Service (Gemini 2.0 Flash Lite)
+PlaceMate Backend – AI Service (gemini-3.5-flash-lite)
 
 Handles study plan generation and notes summarization using Google's
-Gemini 2.0 Flash Lite model via the new `google-genai` SDK.
+gemini-3.5-flash-lite model via the new `google-genai` SDK.
 
-Model choice: gemini-2.0-flash-lite
-  - Free-tier safe: 1500 RPD, 30 RPM, no billing required
+Model choice: gemini-3.5-flash-lite
+  - Free-tier safe: 500 RPD, 15 RPM, no billing required
   - Sufficient for plan/notes/MCQ generation tasks
-  - gemini-2.0-flash and gemini-2.5-flash require billing enabled
 
 For large plans (>15 days), the generation is split into batches of 15
 to stay within the 8192 token output limit and avoid JSON truncation.
@@ -39,7 +38,7 @@ class RateLimitError(Exception):
 
 _client = None
 
-MODEL_ID = "gemini-2.5-flash-lite"
+MODEL_ID = "gemini-3.5-flash-lite"
 
 # Max days per AI call to stay within the 8192 output token limit.
 # Since notes are removed, each day object is ~100-150 tokens, so 50 days ≈ 5000-7500 tokens.
@@ -152,7 +151,7 @@ async def _generate_study_plan_batch_with_groq(
     batch_start: int,
     batch_end: int,
 ) -> list[dict[str, Any]]:
-    """Groq fallback for study plan batch generation (llama-3.3-70b-versatile)."""
+    """Groq fallback for study plan batch generation (openai/gpt-oss-120b)."""
     from groq import Groq
     client = Groq(api_key=settings.GROQ_API_KEY)
 
@@ -163,7 +162,7 @@ async def _generate_study_plan_batch_with_groq(
     logger.info(f"[Groq Fallback] Generating study plan batch {batch_start}-{batch_end}")
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         messages=[
             {"role": "system", "content": "You are a precise technical tutor. Return only valid JSON array. Do not wrap in ```json or any other text, just raw valid JSON array."},
             {"role": "user", "content": prompt},
@@ -263,7 +262,7 @@ async def _generate_notes_with_groq(
     previous_topics: list[str],
 ) -> str:
     """
-    Groq fallback for notes generation (llama-3.3-70b-versatile).
+    Groq fallback for notes generation (openai/gpt-oss-120b).
     Called automatically when Gemini is rate-limited or unavailable.
     """
     from groq import Groq
@@ -296,7 +295,7 @@ Format requirements:
 Return ONLY the markdown notes, no JSON wrappers, no extra conversational preamble."""
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         messages=[
             {"role": "system", "content": "You are a precise technical tutor. Return only well-formatted markdown."},
             {"role": "user", "content": prompt},
@@ -394,7 +393,7 @@ Return ONLY the fact or quote, with no conversational preamble or quotes around 
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": "You are a concise tech coach. Return only the fact text. No quotes around it."},
                 {"role": "user", "content": prompt},
