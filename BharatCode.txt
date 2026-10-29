@@ -1,0 +1,52 @@
+PlaceMate | BharatCode Build League
+
+Project Overview
+PlaceMate is an AI-powered placement preparation platform that acts as a personalized tutor and study companion. It helps students prepare for placements by identifying knowledge gaps and generating customized learning plans based on their strengths, weaknesses, and available study time.
+
+Problem Statement
+Students often rely on generic study schedules and scattered learning resources that do not address their individual learning needs. They need a structured, personalized way to identify weak areas, learn concepts, practise questions, and track improvement.
+
+Our Solution
+PlaceMate uses AI to transform assessment results into personalized, day-wise study plans. It combines learning resources, practice questions, and progress tracking in one platform, helping students prepare more effectively and consistently.
+
+Key Features
+- Google sign-in and user authentication
+- Placement assessments across multiple subjects
+- Automatic identification of weak subjects
+- Personalized AI-generated study plans
+- Configurable study duration and daily study hours
+- AI-generated learning notes
+- Curated YouTube video recommendations
+- Topic-wise MCQ practice
+- Daily progress tracking and interactive dashboard
+- Progressive content unlocking as students complete tasks
+- Assessment retakes to evaluate improvement
+
+AI Workflow
+1. Assess the student's current knowledge.
+2. Analyze assessment performance to identify weak areas.
+3. Generate a personalized learning plan using AI.
+4. Provide notes, video resources, and practice questions.
+5. Track task completion and learning progress.
+6. Reassess the student to measure improvement.
+
+BharatCode Integration
+BharatCode's model API will be used to power AI-driven learning workflows, including personalized study-plan generation and contextual educational assistance. The integration should be configured using environment variables, and API credentials must never be committed to the repository.
+
+Technology Stack
+- Frontend: Next.js, Tailwind CSS
+- Backend: FastAPI, Python
+- Database: Firebase Firestore
+- Authentication: Firebase Authentication
+- AI: Gemini, Grok, with BharatCode Model API integration
+- External API: YouTube Data API
+
+Intended Impact
+PlaceMate aims to make placement preparation more personalized, structured, and accessible by helping students understand what they need to learn, follow a clear study plan, and measure their progress.
+
+Team
+- David Almeida
+- Aaron Coutinho
+
+Repository
+https://github.com/Aaron-Coutinho/PlaceMate
